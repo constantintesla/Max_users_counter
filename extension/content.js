@@ -6,6 +6,973 @@ let allChats = [];
 let currentIndex = 0;
 let processedUrls = new Set(); // Множество уже обработанных URL
 
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyBaz898g63TlMmepanMx9JV9Y2CjD9YSzLmwRdxsxixhlk4eoIrN2mK5DcAecS58jZ6g/exec';
+
+function injectFloatingButton() {
+  if (document.getElementById('imct-floating-button')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'imct-floating-button';
+  btn.type = 'button';
+  btn.title = 'Открыть дашборд imct_counter';
+  btn.style.position = 'fixed';
+  btn.style.left = '12px';
+  btn.style.top = '50%';
+  btn.style.transform = 'translateY(-50%)';
+  btn.style.zIndex = '2147483647';
+  btn.style.border = 'none';
+  btn.style.background = 'transparent';
+  btn.style.padding = '0';
+  btn.style.cursor = 'pointer';
+
+  const img = document.createElement('img');
+  img.src = chrome.runtime.getURL('icons/sad-face-48.png');
+  img.alt = 'imct_counter';
+  img.style.width = '40px';
+  img.style.height = '40px';
+  img.style.borderRadius = '8px';
+  img.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
+  img.style.background = '#fff';
+  img.addEventListener('error', () => {
+    img.alt = 'imct';
+    img.style.display = 'none';
+    btn.textContent = 'imct';
+    btn.style.background = '#fff';
+    btn.style.borderRadius = '8px';
+    btn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
+    btn.style.padding = '6px 8px';
+    btn.style.fontSize = '12px';
+  });
+
+  btn.appendChild(img);
+  btn.addEventListener('click', () => {
+    togglePopupOverlay();
+  });
+
+  document.body.appendChild(btn);
+}
+
+let overlayElements = null;
+
+function createOverlay() {
+  const overlay = document.createElement('div');
+  overlay.id = 'imct-popup-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.left = '60px';
+  overlay.style.top = '50%';
+  overlay.style.transform = 'translateY(-50%)';
+  overlay.style.width = '360px';
+  overlay.style.background = '#fff';
+  overlay.style.border = '1px solid #e0e0e0';
+  overlay.style.borderRadius = '10px';
+  overlay.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)';
+  overlay.style.zIndex = '2147483647';
+  overlay.style.fontFamily = 'Segoe UI, Roboto, Arial, sans-serif';
+  overlay.style.fontSize = '13px';
+  overlay.style.color = '#333';
+  overlay.style.padding = '12px';
+
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.marginBottom = '8px';
+
+  const title = document.createElement('div');
+  title.textContent = 'imct_counter';
+  title.style.fontWeight = '600';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.border = 'none';
+  closeBtn.style.background = 'transparent';
+  closeBtn.style.fontSize = '20px';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.addEventListener('click', () => {
+    overlay.style.display = 'none';
+  });
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const status = document.createElement('div');
+  status.id = 'imct-status';
+  status.textContent = 'Готов к работе';
+  status.style.padding = '8px';
+  status.style.borderRadius = '6px';
+  status.style.background = '#e3f2fd';
+  status.style.color = '#1976d2';
+  status.style.marginBottom = '8px';
+  status.style.textAlign = 'center';
+
+  const progressWrap = document.createElement('div');
+  progressWrap.id = 'imct-progress';
+  progressWrap.style.display = 'none';
+  progressWrap.style.marginBottom = '8px';
+
+  const progressBar = document.createElement('div');
+  progressBar.style.height = '14px';
+  progressBar.style.background = '#e0e0e0';
+  progressBar.style.borderRadius = '999px';
+  progressBar.style.overflow = 'hidden';
+
+  const progressFill = document.createElement('div');
+  progressFill.id = 'imct-progress-fill';
+  progressFill.style.height = '100%';
+  progressFill.style.width = '0%';
+  progressFill.style.background = 'linear-gradient(90deg, #4caf50, #8bc34a)';
+  progressBar.appendChild(progressFill);
+
+  const progressText = document.createElement('div');
+  progressText.id = 'imct-progress-text';
+  progressText.style.textAlign = 'center';
+  progressText.style.marginTop = '4px';
+  progressText.style.fontSize = '12px';
+  progressText.textContent = '0 / 0';
+
+  progressWrap.appendChild(progressBar);
+  progressWrap.appendChild(progressText);
+
+  const buttons = document.createElement('div');
+  buttons.style.display = 'flex';
+  buttons.style.flexDirection = 'column';
+  buttons.style.gap = '6px';
+  buttons.style.marginBottom = '8px';
+
+  const makeBtn = (text, bg) => {
+    const btn = document.createElement('button');
+    btn.textContent = text;
+    btn.style.padding = '8px 10px';
+    btn.style.border = 'none';
+    btn.style.borderRadius = '6px';
+    btn.style.background = bg;
+    btn.style.color = '#fff';
+    btn.style.cursor = 'pointer';
+    return btn;
+  };
+
+  const startBtn = makeBtn('Начать сбор данных', '#1976d2');
+  const testBtn = makeBtn('Тест (3 группы)', '#ff9800');
+  const stopBtn = makeBtn('Остановить', '#f44336');
+  const exportBtn = makeBtn('Экспорт в CSV', '#4caf50');
+  const sendBtn = makeBtn('Отправить в Google', '#607d8b');
+  const loadBtn = makeBtn('Загрузить из Google', '#607d8b');
+  const dashboardBtn = makeBtn('Открыть дашборд', '#607d8b');
+
+  buttons.appendChild(startBtn);
+  buttons.appendChild(testBtn);
+  buttons.appendChild(stopBtn);
+  buttons.appendChild(exportBtn);
+  buttons.appendChild(sendBtn);
+  buttons.appendChild(loadBtn);
+  buttons.appendChild(dashboardBtn);
+
+  const results = document.createElement('div');
+  results.id = 'imct-results';
+  results.style.display = 'none';
+  results.style.border = '1px solid #e0e0e0';
+  results.style.borderRadius = '6px';
+  results.style.padding = '8px';
+  results.style.background = '#fafafa';
+  const resultsTitle = document.createElement('div');
+  resultsTitle.textContent = 'Результаты:';
+  resultsTitle.style.fontWeight = '600';
+  resultsTitle.style.marginBottom = '4px';
+  const resultsCount = document.createElement('div');
+  resultsCount.id = 'imct-results-count';
+  resultsCount.textContent = 'Обработано чатов: 0';
+  results.appendChild(resultsTitle);
+  results.appendChild(resultsCount);
+
+  overlay.appendChild(header);
+  overlay.appendChild(status);
+  overlay.appendChild(progressWrap);
+  overlay.appendChild(buttons);
+  overlay.appendChild(results);
+  document.body.appendChild(overlay);
+
+  overlayElements = {
+    overlay,
+    status,
+    progressWrap,
+    progressFill,
+    progressText,
+    results,
+    resultsCount,
+    startBtn,
+    testBtn,
+    stopBtn,
+    exportBtn,
+    sendBtn,
+    loadBtn,
+    dashboardBtn
+  };
+
+  startBtn.addEventListener('click', () => collectChatData());
+  testBtn.addEventListener('click', () => collectChatData(3));
+  stopBtn.addEventListener('click', () => {
+    isRunning = false;
+    chrome.storage.local.set({ isRunning: false });
+    updateOverlayStatus('Остановлено', 'idle');
+  });
+  exportBtn.addEventListener('click', () => exportToCSV(collectedData));
+  sendBtn.addEventListener('click', () => {
+    sendLastSnapshotToGoogle();
+  });
+  loadBtn.addEventListener('click', () => {
+    loadSnapshotsFromGoogle();
+  });
+  dashboardBtn.addEventListener('click', () => {
+    toggleDashboardOverlay();
+  });
+}
+
+function togglePopupOverlay() {
+  if (!overlayElements) {
+    createOverlay();
+  }
+  const overlay = overlayElements.overlay;
+  overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
+}
+
+function updateOverlayStatus(text, type) {
+  if (!overlayElements) return;
+  const status = overlayElements.status;
+  status.textContent = text;
+  if (type === 'running') {
+    status.style.background = '#fff3e0';
+    status.style.color = '#f57c00';
+  } else if (type === 'completed') {
+    status.style.background = '#e8f5e9';
+    status.style.color = '#388e3c';
+  } else if (type === 'error') {
+    status.style.background = '#ffebee';
+    status.style.color = '#d32f2f';
+  } else {
+    status.style.background = '#e3f2fd';
+    status.style.color = '#1976d2';
+  }
+}
+
+function updateOverlayProgress(current, total) {
+  if (!overlayElements) return;
+  overlayElements.progressWrap.style.display = total > 0 ? 'block' : 'none';
+  overlayElements.progressText.textContent = `${current} / ${total}`;
+  const percentage = total > 0 ? (current / total) * 100 : 0;
+  overlayElements.progressFill.style.width = `${percentage}%`;
+}
+
+function updateOverlayResults() {
+  if (!overlayElements) return;
+  overlayElements.results.style.display = collectedData.length > 0 ? 'block' : 'none';
+  overlayElements.resultsCount.textContent = `Обработано чатов: ${collectedData.length}`;
+}
+
+function exportToCSV(data) {
+  if (!data || data.length === 0) {
+    updateOverlayStatus('Нет данных для экспорта', 'error');
+    return;
+  }
+
+  const headers = [
+    'Название чата',
+    'Ссылка',
+    'Количество участников',
+    'Количество админов',
+    'Количество владельцев',
+    'Есть Цифровой вуз Бот',
+    'Список участников'
+  ];
+
+  let csv = headers.join(',') + '\n';
+
+  data.forEach(item => {
+    let participantsListStr = '';
+    if (item.participantsList && item.participantsList.length > 0) {
+      participantsListStr = item.participantsList.map(p => {
+        let role = '';
+        if (p.isOwner) role = ' (Владелец)';
+        else if (p.isAdmin) role = ' (Админ)';
+        return p.name + role;
+      }).join('; ');
+    }
+
+    const row = [
+      `"${(item.name || '').replace(/"/g, '""')}"`,
+      `"${(item.url || '').replace(/"/g, '""')}"`,
+      item.participants || '0',
+      item.adminsCount || '0',
+      item.ownersCount || '0',
+      item.hasDigitalVuzBot ? 'Да' : 'Нет',
+      `"${participantsListStr.replace(/"/g, '""')}"`
+    ];
+    csv += row.join(',') + '\n';
+  });
+
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `max_chats_${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+  updateOverlayStatus('CSV файл скачан', 'completed');
+}
+
+function generateUserId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'uid-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function getOrCreateUserId() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(['userId'], result => {
+      if (result.userId) {
+        resolve(result.userId);
+        return;
+      }
+      const newId = generateUserId();
+      chrome.storage.local.set({ userId: newId }, () => resolve(newId));
+    });
+  });
+}
+
+function buildSnapshotFromCollectedData(data, timestamp) {
+  const groups = {};
+  (data || []).forEach(item => {
+    const key = (item.url || item.name || '').trim();
+    if (!key) return;
+    const participantsList = Array.isArray(item.participantsList) ? item.participantsList : [];
+    const participantsListStr = participantsList.map(p => {
+      if (!p || !p.name) return '';
+      let role = '';
+      if (p.isOwner) role = ' (Владелец)';
+      else if (p.isAdmin) role = ' (Админ)';
+      return `${p.name}${role}`;
+    }).filter(Boolean).join('; ');
+    groups[key] = {
+      name: item.name || key,
+      url: item.url || '',
+      participants: Number(item.participants) || 0,
+      adminsCount: Number(item.adminsCount) || 0,
+      ownersCount: Number(item.ownersCount) || 0,
+      hasDigitalVuzAdmin: !!item.hasDigitalVuzBot,
+      hasKhlstovAdmin: false,
+      hasDvfuStatsUser: false,
+      participantsListStr: participantsListStr
+    };
+  });
+  return {
+    timestamp: timestamp || Date.now(),
+    groups: groups
+  };
+}
+
+function buildRowsForSnapshot(snapshot, prevSnapshot) {
+  const current = snapshot.groups || {};
+  const prev = prevSnapshot ? (prevSnapshot.groups || {}) : {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(current)]);
+  const rows = [];
+  keys.forEach(key => {
+    const curr = current[key];
+    const prevItem = prev[key];
+    const currCount = curr ? curr.participants : 0;
+    const prevCount = prevItem ? prevItem.participants : 0;
+    rows.push({
+      name: (curr && curr.name) || (prevItem && prevItem.name) || key,
+      url: (curr && curr.url) || (prevItem && prevItem.url) || '',
+      participants: currCount,
+      adminsCount: curr ? curr.adminsCount : 0,
+      ownersCount: curr ? curr.ownersCount : 0,
+      delta: currCount - prevCount,
+      hasDigitalVuzAdmin: curr ? curr.hasDigitalVuzAdmin : false,
+      hasKhlstovAdmin: curr ? curr.hasKhlstovAdmin : false,
+      hasDvfuStatsUser: curr ? curr.hasDvfuStatsUser : false,
+      participantsListStr: curr ? curr.participantsListStr : ''
+    });
+  });
+  return rows;
+}
+
+async function sendSnapshotToGoogle(snapshot, prevSnapshot) {
+  if (!APPS_SCRIPT_URL) {
+    updateOverlayStatus('Нет URL Apps Script', 'error');
+    return;
+  }
+  const userId = await getOrCreateUserId();
+  const payload = {
+    ts: new Date(snapshot.timestamp).toISOString(),
+    userId: userId,
+    rows: buildRowsForSnapshot(snapshot, prevSnapshot)
+  };
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    updateOverlayStatus('Отправлено в Google Sheets', 'completed');
+  } catch (error) {
+    updateOverlayStatus('Ошибка отправки в Google Sheets', 'error');
+  }
+}
+
+async function sendLastSnapshotToGoogle() {
+  updateOverlayStatus('Отправка в Google Sheets...', 'running');
+  chrome.storage.local.get(['snapshots', 'collectedData', 'lastCollectedAt'], async result => {
+    const snapshots = result.snapshots || [];
+    let lastSnapshot = snapshots[snapshots.length - 1] || null;
+    let prevSnapshot = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
+    if (!lastSnapshot && result.collectedData && result.collectedData.length > 0) {
+      lastSnapshot = buildSnapshotFromCollectedData(result.collectedData, result.lastCollectedAt || Date.now());
+    }
+    if (!lastSnapshot) {
+      updateOverlayStatus('Нет снимков для отправки', 'error');
+      return;
+    }
+    await sendSnapshotToGoogle(lastSnapshot, prevSnapshot);
+  });
+}
+
+function parseBool(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase();
+    return normalized === 'yes' || normalized === 'true' || normalized === '1';
+  }
+  return Boolean(value);
+}
+
+function buildSnapshotsFromRows(rows) {
+  const byTimestamp = new Map();
+  rows.forEach(row => {
+    const ts = row.ts || row.timestamp || '';
+    if (!ts) return;
+    if (!byTimestamp.has(ts)) {
+      byTimestamp.set(ts, { timestamp: new Date(ts).getTime(), groups: {} });
+    }
+    const snapshot = byTimestamp.get(ts);
+    const key = (row.groupUrl || row.groupName || '').trim();
+    if (!key) return;
+    snapshot.groups[key] = {
+      name: row.groupName || key,
+      url: row.groupUrl || '',
+      participants: Number(row.participants) || 0,
+      adminsCount: Number(row.admins) || 0,
+      ownersCount: Number(row.owners) || 0,
+      hasDigitalVuzAdmin: parseBool(row.hasDigitalVuzAdmin),
+      hasKhlstovAdmin: parseBool(row.hasKhlstovAdmin),
+      hasDvfuStatsUser: parseBool(row.hasDvfuStatsUser),
+      participantsListStr: row.participants_list || ''
+    };
+  });
+  return Array.from(byTimestamp.values()).sort((a, b) => a.timestamp - b.timestamp);
+}
+
+async function loadSnapshotsFromGoogle() {
+  updateOverlayStatus('Загрузка из Google Sheets...', 'running');
+  try {
+    const userId = await getOrCreateUserId();
+    const url = `${APPS_SCRIPT_URL}?action=get&userId=${encodeURIComponent(userId)}&limit=2000`;
+    const response = await fetch(url, { method: 'GET' });
+    const data = await response.json();
+    if (!data || !data.ok) {
+      updateOverlayStatus('Ошибка загрузки из Google Sheets', 'error');
+      return;
+    }
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    const snapshots = buildSnapshotsFromRows(rows);
+    chrome.storage.local.set({ snapshots: snapshots }, () => {
+      updateOverlayStatus(`Загружено снимков: ${snapshots.length}`, 'completed');
+      if (dashboardOverlayElements && dashboardOverlayElements.overlay.style.display === 'block') {
+        renderDashboardFromSnapshots(snapshots);
+      }
+    });
+  } catch (error) {
+    updateOverlayStatus('Ошибка загрузки из Google Sheets', 'error');
+  }
+}
+
+let dashboardOverlayElements = null;
+
+function toggleDashboardOverlay() {
+  if (!dashboardOverlayElements) {
+    createDashboardOverlay();
+  }
+  const overlay = dashboardOverlayElements.overlay;
+  overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
+  if (overlay.style.display === 'block') {
+    loadSnapshotsAndRenderDashboard();
+  }
+}
+
+function createDashboardOverlay() {
+  const overlay = document.createElement('div');
+  overlay.id = 'imct-dashboard-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.left = '80px';
+  overlay.style.top = '50%';
+  overlay.style.transform = 'translateY(-50%)';
+  overlay.style.width = '920px';
+  overlay.style.maxHeight = '80vh';
+  overlay.style.background = '#fff';
+  overlay.style.border = '1px solid #e0e0e0';
+  overlay.style.borderRadius = '10px';
+  overlay.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)';
+  overlay.style.zIndex = '2147483647';
+  overlay.style.overflow = 'auto';
+  overlay.style.fontFamily = 'Segoe UI, Roboto, Arial, sans-serif';
+  overlay.style.fontSize = '13px';
+  overlay.style.color = '#333';
+
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.padding = '12px 16px';
+  header.style.borderBottom = '1px solid #e0e0e0';
+  const title = document.createElement('div');
+  title.textContent = 'Дашборд imct_counter';
+  title.style.fontWeight = '600';
+  const headerActions = document.createElement('div');
+  const refreshBtn = document.createElement('button');
+  refreshBtn.textContent = 'Обновить';
+  refreshBtn.style.marginRight = '8px';
+  refreshBtn.style.border = 'none';
+  refreshBtn.style.background = '#1976d2';
+  refreshBtn.style.color = '#fff';
+  refreshBtn.style.borderRadius = '6px';
+  refreshBtn.style.padding = '6px 10px';
+  refreshBtn.style.cursor = 'pointer';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.border = 'none';
+  closeBtn.style.background = 'transparent';
+  closeBtn.style.fontSize = '20px';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.addEventListener('click', () => {
+    overlay.style.display = 'none';
+  });
+  headerActions.appendChild(refreshBtn);
+  headerActions.appendChild(closeBtn);
+  header.appendChild(title);
+  header.appendChild(headerActions);
+
+  const body = document.createElement('div');
+  body.style.padding = '12px 16px';
+
+  const lastUpdated = document.createElement('div');
+  lastUpdated.style.color = '#666';
+  lastUpdated.style.marginBottom = '10px';
+
+  const summary = document.createElement('div');
+  summary.style.display = 'grid';
+  summary.style.gridTemplateColumns = 'repeat(8, minmax(0, 1fr))';
+  summary.style.gap = '8px';
+  summary.style.marginBottom = '12px';
+
+  const makeSummaryItem = (label) => {
+    const wrap = document.createElement('div');
+    wrap.style.border = '1px solid #e0e0e0';
+    wrap.style.borderRadius = '6px';
+    wrap.style.padding = '8px';
+    wrap.style.background = '#fafafa';
+    const title = document.createElement('div');
+    title.textContent = label;
+    title.style.fontSize = '12px';
+    title.style.color = '#555';
+    const value = document.createElement('div');
+    value.textContent = '0';
+    value.style.fontWeight = '600';
+    wrap.appendChild(title);
+    wrap.appendChild(value);
+    return { wrap, value };
+  };
+
+  const summaryItems = {
+    total: makeSummaryItem('Всего групп'),
+    up: makeSummaryItem('Рост'),
+    down: makeSummaryItem('Падение'),
+    same: makeSummaryItem('Без изменений'),
+    digital: makeSummaryItem('Цифровой вуз админ'),
+    khlstov: makeSummaryItem('Константин Хлыстов админ'),
+    dvfu: makeSummaryItem('Статистика чатов ДВФУ'),
+    percent: makeSummaryItem('Процент от 2723')
+  };
+  Object.values(summaryItems).forEach(item => summary.appendChild(item.wrap));
+
+  const percentBar = document.createElement('div');
+  percentBar.style.border = '1px solid #e0e0e0';
+  percentBar.style.borderRadius = '8px';
+  percentBar.style.padding = '10px';
+  percentBar.style.marginBottom = '12px';
+  const percentLabel = document.createElement('div');
+  percentLabel.textContent = 'Заполненность от 2723';
+  percentLabel.style.color = '#555';
+  percentLabel.style.marginBottom = '6px';
+  const percentTrack = document.createElement('div');
+  percentTrack.style.height = '14px';
+  percentTrack.style.background = '#e8eaf6';
+  percentTrack.style.borderRadius = '999px';
+  percentTrack.style.overflow = 'hidden';
+  const percentFill = document.createElement('div');
+  percentFill.style.height = '100%';
+  percentFill.style.width = '0%';
+  percentFill.style.background = 'linear-gradient(90deg, #42a5f5, #66bb6a)';
+  percentTrack.appendChild(percentFill);
+  percentBar.appendChild(percentLabel);
+  percentBar.appendChild(percentTrack);
+
+  const charts = document.createElement('div');
+  charts.style.display = 'grid';
+  charts.style.gridTemplateColumns = '1fr';
+  charts.style.gap = '10px';
+  charts.style.marginBottom = '12px';
+
+  const makeChartCard = (titleText) => {
+    const card = document.createElement('div');
+    card.style.border = '1px solid #e0e0e0';
+    card.style.borderRadius = '6px';
+    card.style.padding = '10px';
+    const title = document.createElement('div');
+    title.textContent = titleText;
+    title.style.color = '#555';
+    title.style.marginBottom = '6px';
+    const canvas = document.createElement('canvas');
+    canvas.width = 860;
+    canvas.height = 220;
+    card.appendChild(title);
+    card.appendChild(canvas);
+    return { card, canvas };
+  };
+
+  const chartTotal = makeChartCard('Сумма участников по снимкам');
+  const chartChanges = makeChartCard('Динамика групп (рост/падение/без изменений)');
+  const chartTop = makeChartCard('Топ изменений по группам (последний снимок)');
+  charts.appendChild(chartTotal.card);
+  charts.appendChild(chartChanges.card);
+  charts.appendChild(chartTop.card);
+
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.border = '1px solid #e0e0e0';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  ['Название', 'Участники', 'Δ', 'Админы', 'Владельцы', 'Цифровой вуз админ', 'Константин Хлыстов админ', 'Статистика чатов ДВФУ']
+    .forEach(text => {
+      const th = document.createElement('th');
+      th.textContent = text;
+      th.style.textAlign = 'left';
+      th.style.padding = '8px';
+      th.style.background = '#fafafa';
+      th.style.borderBottom = '1px solid #e0e0e0';
+      headRow.appendChild(th);
+    });
+  thead.appendChild(headRow);
+  const tbody = document.createElement('tbody');
+  table.appendChild(thead);
+  table.appendChild(tbody);
+
+  body.appendChild(lastUpdated);
+  body.appendChild(summary);
+  body.appendChild(percentBar);
+  body.appendChild(charts);
+  body.appendChild(table);
+
+  overlay.appendChild(header);
+  overlay.appendChild(body);
+  document.body.appendChild(overlay);
+
+  dashboardOverlayElements = {
+    overlay,
+    refreshBtn,
+    lastUpdated,
+    summaryItems,
+    percentFill,
+    chartTotal: chartTotal.canvas,
+    chartChanges: chartChanges.canvas,
+    chartTop: chartTop.canvas,
+    tableBody: tbody
+  };
+
+  refreshBtn.addEventListener('click', loadSnapshotsAndRenderDashboard);
+}
+
+function loadSnapshotsAndRenderDashboard() {
+  chrome.storage.local.get(['snapshots'], result => {
+    const snapshots = result.snapshots || [];
+    renderDashboardFromSnapshots(snapshots);
+  });
+}
+
+function renderDashboardFromSnapshots(snapshots) {
+  if (!dashboardOverlayElements) return;
+  const el = dashboardOverlayElements;
+  const lastSnapshot = snapshots[snapshots.length - 1];
+  const prevSnapshot = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
+
+  if (!lastSnapshot) {
+    el.lastUpdated.textContent = 'Последний снимок: —';
+    Object.values(el.summaryItems).forEach(item => item.value.textContent = '0');
+    el.percentFill.style.width = '0%';
+    el.tableBody.innerHTML = '';
+    drawLineChart(el.chartTotal, [{ name: 'Участники', color: '#1976d2', data: [0] }]);
+    drawLineChart(el.chartChanges, [
+      { name: 'Рост', color: '#2e7d32', data: [0] },
+      { name: 'Падение', color: '#c62828', data: [0] },
+      { name: 'Без изменений', color: '#616161', data: [0] }
+    ]);
+    drawBarChart(el.chartTop, []);
+    return;
+  }
+
+  el.lastUpdated.textContent = 'Последний снимок: ' + new Date(lastSnapshot.timestamp).toLocaleString('ru-RU');
+  const rows = buildRowsForSnapshot(lastSnapshot, prevSnapshot);
+
+  const increased = rows.filter(r => r.delta > 0).length;
+  const decreased = rows.filter(r => r.delta < 0).length;
+  const same = rows.filter(r => r.delta === 0).length;
+  const digital = rows.filter(r => r.hasDigitalVuzAdmin).length;
+  const khlstov = rows.filter(r => r.hasKhlstovAdmin).length;
+  const dvfu = rows.filter(r => r.hasDvfuStatsUser).length;
+  const totalParticipants = rows.reduce((sum, r) => sum + (r.participants || 0), 0);
+  const percent = Math.round((totalParticipants / 2723) * 1000) / 10;
+  const percentClamped = Math.max(0, Math.min(100, percent));
+
+  el.summaryItems.total.value.textContent = String(rows.length);
+  el.summaryItems.up.value.textContent = String(increased);
+  el.summaryItems.down.value.textContent = String(decreased);
+  el.summaryItems.same.value.textContent = String(same);
+  el.summaryItems.digital.value.textContent = String(digital);
+  el.summaryItems.khlstov.value.textContent = String(khlstov);
+  el.summaryItems.dvfu.value.textContent = String(dvfu);
+  el.summaryItems.percent.value.textContent = `${percent}%`;
+  el.percentFill.style.width = `${percentClamped}%`;
+
+  el.tableBody.innerHTML = '';
+  rows.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.textContent = row.name;
+    const tdParticipants = document.createElement('td');
+    tdParticipants.textContent = String(row.participants);
+    tdParticipants.style.padding = '6px';
+    tdParticipants.style.fontWeight = '600';
+    if (row.delta > 0) tdParticipants.style.background = '#e8f5e9';
+    else if (row.delta < 0) tdParticipants.style.background = '#ffebee';
+    else tdParticipants.style.background = '#f5f5f5';
+    const tdDelta = document.createElement('td');
+    tdDelta.textContent = row.delta > 0 ? `+${row.delta}` : String(row.delta);
+    const tdAdmins = document.createElement('td');
+    tdAdmins.textContent = String(row.adminsCount);
+    const tdOwners = document.createElement('td');
+    tdOwners.textContent = String(row.ownersCount);
+    const tdDigital = document.createElement('td');
+    tdDigital.textContent = row.hasDigitalVuzAdmin ? 'Да' : 'Нет';
+    const tdKhlstov = document.createElement('td');
+    tdKhlstov.textContent = row.hasKhlstovAdmin ? 'Да' : 'Нет';
+    const tdDvfu = document.createElement('td');
+    tdDvfu.textContent = row.hasDvfuStatsUser ? 'Да' : 'Нет';
+    [tdName, tdParticipants, tdDelta, tdAdmins, tdOwners, tdDigital, tdKhlstov, tdDvfu].forEach(td => {
+      td.style.padding = '6px 8px';
+      td.style.borderBottom = '1px solid #eee';
+      tr.appendChild(td);
+    });
+    el.tableBody.appendChild(tr);
+  });
+
+  const totalSeries = snapshots.map(snap => {
+    const groups = snap.groups || {};
+    return Object.values(groups).reduce((sum, g) => sum + (g.participants || 0), 0);
+  });
+  drawLineChart(el.chartTotal, [{ name: 'Участники', color: '#1976d2', data: totalSeries }]);
+
+  const changeSeries = snapshots.map((snap, idx) => {
+    if (idx === 0) return { up: 0, down: 0, same: 0 };
+    const current = snap.groups || {};
+    const prev = snapshots[idx - 1].groups || {};
+    const keys = new Set([...Object.keys(prev), ...Object.keys(current)]);
+    let up = 0;
+    let down = 0;
+    let same = 0;
+    keys.forEach(key => {
+      const currCount = current[key] ? current[key].participants : 0;
+      const prevCount = prev[key] ? prev[key].participants : 0;
+      const delta = currCount - prevCount;
+      if (delta > 0) up++;
+      else if (delta < 0) down++;
+      else same++;
+    });
+    return { up, down, same };
+  });
+  drawLineChart(el.chartChanges, [
+    { name: 'Рост', color: '#2e7d32', data: changeSeries.map(s => s.up) },
+    { name: 'Падение', color: '#c62828', data: changeSeries.map(s => s.down) },
+    { name: 'Без изменений', color: '#616161', data: changeSeries.map(s => s.same) }
+  ]);
+
+  const changedRows = rows.filter(r => r.delta !== 0)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const zeroRows = rows.filter(r => r.delta === 0)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  const topChanges = changedRows.slice(0, 10);
+  while (topChanges.length < 10 && zeroRows.length > 0) {
+    topChanges.push(zeroRows.shift());
+  }
+  drawBarChart(el.chartTop, topChanges);
+}
+
+function buildRowsForSnapshot(snapshot, prevSnapshot) {
+  const current = snapshot.groups || {};
+  const prev = prevSnapshot ? (prevSnapshot.groups || {}) : {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(current)]);
+  const rows = [];
+  keys.forEach(key => {
+    const curr = current[key];
+    const prevItem = prev[key];
+    const currCount = curr ? curr.participants : 0;
+    const prevCount = prevItem ? prevItem.participants : 0;
+    rows.push({
+      name: (curr && curr.name) || (prevItem && prevItem.name) || key,
+      url: (curr && curr.url) || (prevItem && prevItem.url) || '',
+      participants: currCount,
+      adminsCount: curr ? curr.adminsCount : 0,
+      ownersCount: curr ? curr.ownersCount : 0,
+      delta: currCount - prevCount,
+      hasDigitalVuzAdmin: curr ? curr.hasDigitalVuzAdmin : false,
+      hasKhlstovAdmin: curr ? curr.hasKhlstovAdmin : false,
+      hasDvfuStatsUser: curr ? curr.hasDvfuStatsUser : false
+    });
+  });
+  return rows;
+}
+
+function drawLineChart(canvas, seriesList) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const padding = 30;
+
+  ctx.clearRect(0, 0, width, height);
+
+  const allValues = seriesList.flatMap(s => s.data);
+  const maxValue = Math.max(1, ...allValues);
+  const minValue = Math.min(0, ...allValues);
+  const range = maxValue - minValue || 1;
+
+  const maxPoints = Math.max(...seriesList.map(s => s.data.length), 1);
+
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding, padding);
+  ctx.lineTo(padding, height - padding);
+  ctx.lineTo(width - padding, height - padding);
+  ctx.stroke();
+
+  ctx.fillStyle = '#666';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('Снимки', width / 2 - 20, height - 8);
+  ctx.save();
+  ctx.translate(12, height / 2 + 20);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Значение', 0, 0);
+  ctx.restore();
+
+  let legendY = padding - 10;
+  seriesList.forEach(series => {
+    legendY += 14;
+    ctx.fillStyle = series.color;
+    ctx.fillRect(padding + 4, legendY - 9, 10, 10);
+    ctx.fillStyle = '#333';
+    ctx.fillText(series.name, padding + 18, legendY);
+  });
+
+  seriesList.forEach(series => {
+    const data = series.data;
+    ctx.strokeStyle = series.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((value, index) => {
+      const x = padding + (index / Math.max(1, maxPoints - 1)) * (width - padding * 2);
+      const normalized = (value - minValue) / range;
+      const y = height - padding - normalized * (height - padding * 2);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+}
+
+function drawBarChart(canvas, rows) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const padding = 40;
+  ctx.clearRect(0, 0, width, height);
+
+  if (!rows.length) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Нет изменений', padding, height / 2);
+    return;
+  }
+
+  const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r.delta)));
+  const barAreaWidth = width - padding * 2;
+  const barHeight = Math.max(18, Math.floor((height - padding * 2) / rows.length) - 6);
+  const centerX = padding + barAreaWidth / 2;
+
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(centerX, padding);
+  ctx.lineTo(centerX, height - padding);
+  ctx.stroke();
+
+  ctx.fillStyle = '#666';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('Группы', padding, height - 8);
+  ctx.save();
+  ctx.translate(12, height / 2 + 20);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Δ участников', 0, 0);
+  ctx.restore();
+
+  rows.forEach((row, idx) => {
+    const y = padding + idx * (barHeight + 6);
+    const barWidth = (Math.abs(row.delta) / maxAbs) * (barAreaWidth / 2);
+    const isUp = row.delta > 0;
+    const x = isUp ? centerX : centerX - barWidth;
+
+    ctx.fillStyle = isUp ? '#a5d6a7' : (row.delta < 0 ? '#ef9a9a' : '#e0e0e0');
+    ctx.fillRect(x, y, barWidth, barHeight);
+
+    if (row.delta !== 0) {
+      ctx.fillStyle = '#333';
+      ctx.font = '12px sans-serif';
+      const label = `${row.name} (${row.delta > 0 ? '+' : ''}${row.delta})`;
+      const textX = isUp ? centerX + 6 : padding;
+      ctx.fillText(label, textX, y + barHeight - 4);
+    }
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', injectFloatingButton);
+} else {
+  injectFloatingButton();
+}
+
 // Функция ожидания
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -1443,13 +2410,24 @@ async function collectAllChatUrls() {
 async function collectChatData(maxChats = null) {
   try {
     console.error('[imct_counter] collectChatData запущена, maxChats:', maxChats);
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
+      updateOverlayStatus('Расширение перезапущено. Обновите страницу.', 'error');
+      return;
+    }
     isRunning = true;
     collectedData = [];
     currentIndex = 0;
     processedUrls = new Set(); // Сбрасываем список обработанных URL
     
-    // Очищаем все сохраненные данные при запуске
-    chrome.storage.local.set({ collectedData: [], processedUrls: [] });
+    // Очищаем все сохраненные данные при запуске и выставляем флаг запуска
+    try {
+      chrome.storage.local.set({ isRunning: true, collectedData: [], processedUrls: [] });
+    } catch (e) {
+      console.error('[imct_counter] Ошибка доступа к storage:', e);
+      updateOverlayStatus('Ошибка storage. Обновите страницу.', 'error');
+      isRunning = false;
+      return;
+    }
     
     // Отправляем начальный прогресс
     console.error('[imct_counter] Отправляем начальный прогресс');
@@ -1911,6 +2889,7 @@ function sendProgress(current, total) {
       current: current,
       total: total
     });
+    updateOverlayProgress(current, total);
   } catch (error) {
     console.error('[imct_counter] Ошибка при отправке прогресса:', error);
   }
@@ -1928,26 +2907,37 @@ function saveData() {
 
 // Функция отправки завершения
 function sendCompleted() {
-  chrome.runtime.sendMessage({
-    action: 'completed',
-    data: collectedData
-  });
-  
-  chrome.storage.local.set({ 
-    isRunning: false, 
-    collectedData: collectedData,
-    lastCollectedAt: Date.now()
-  });
+  try {
+    chrome.runtime.sendMessage({
+      action: 'completed',
+      data: collectedData
+    });
+    
+    chrome.storage.local.set({ 
+      isRunning: false, 
+      collectedData: collectedData,
+      lastCollectedAt: Date.now()
+    });
+  } catch (e) {
+    console.error('[imct_counter] Ошибка при завершении:', e);
+  }
+  updateOverlayStatus('Готово', 'completed');
+  updateOverlayResults();
 }
 
 // Функция отправки ошибки
 function sendError(errorMessage) {
-  chrome.runtime.sendMessage({
-    action: 'error',
-    error: errorMessage
-  });
-  
-  chrome.storage.local.set({ isRunning: false });
+  try {
+    chrome.runtime.sendMessage({
+      action: 'error',
+      error: errorMessage
+    });
+    
+    chrome.storage.local.set({ isRunning: false });
+  } catch (e) {
+    console.error('[imct_counter] Ошибка при отправке ошибки:', e);
+  }
+  updateOverlayStatus('Ошибка: ' + errorMessage, 'error');
 }
 
 // Обработка сообщений от popup

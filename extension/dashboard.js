@@ -19,9 +19,12 @@ let summarySameEl;
 let summaryDigitalVuzEl;
 let summaryKhlstovEl;
 let summaryDvfuEl;
+let summaryPercentEl;
+let percentBarFillEl;
 let chartsEl;
 let chartTotalEl;
 let chartChangesEl;
+let chartTopChangesEl;
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyBaz898g63TlMmepanMx9JV9Y2CjD9YSzLmwRdxsxixhlk4eoIrN2mK5DcAecS58jZ6g/exec';
 
@@ -44,9 +47,12 @@ function getUIElements() {
   summaryDigitalVuzEl = document.getElementById('summary-digitalvuz');
   summaryKhlstovEl = document.getElementById('summary-khlstov');
   summaryDvfuEl = document.getElementById('summary-dvfu');
+  summaryPercentEl = document.getElementById('summary-percent');
+  percentBarFillEl = document.getElementById('percentBarFill');
   chartsEl = document.getElementById('charts');
   chartTotalEl = document.getElementById('chartTotal');
   chartChangesEl = document.getElementById('chartChanges');
+  chartTopChangesEl = document.getElementById('chartTopChanges');
 }
 
 function updateStatus(text, type) {
@@ -300,6 +306,8 @@ function renderSnapshots() {
     if (summaryDigitalVuzEl) summaryDigitalVuzEl.textContent = '0';
     if (summaryKhlstovEl) summaryKhlstovEl.textContent = '0';
     if (summaryDvfuEl) summaryDvfuEl.textContent = '0';
+    if (summaryPercentEl) summaryPercentEl.textContent = '0%';
+    if (percentBarFillEl) percentBarFillEl.style.width = '0%';
     return;
   }
 
@@ -339,6 +347,9 @@ function renderSnapshots() {
   const digitalVuzCount = rows.filter(r => r.hasDigitalVuzAdmin).length;
   const khlstovCount = rows.filter(r => r.hasKhlstovAdmin).length;
   const dvfuCount = rows.filter(r => r.hasDvfuStatsUser).length;
+  const totalParticipants = rows.reduce((sum, r) => sum + (r.participants || 0), 0);
+  const percent = Math.round((totalParticipants / 2723) * 1000) / 10;
+  const percentClamped = Math.max(0, Math.min(100, percent));
 
   if (summaryTotalEl) summaryTotalEl.textContent = String(rows.length);
   if (summaryUpEl) summaryUpEl.textContent = String(increased);
@@ -347,6 +358,8 @@ function renderSnapshots() {
   if (summaryDigitalVuzEl) summaryDigitalVuzEl.textContent = String(digitalVuzCount);
   if (summaryKhlstovEl) summaryKhlstovEl.textContent = String(khlstovCount);
   if (summaryDvfuEl) summaryDvfuEl.textContent = String(dvfuCount);
+  if (summaryPercentEl) summaryPercentEl.textContent = `${percent}%`;
+  if (percentBarFillEl) percentBarFillEl.style.width = `${percentClamped}%`;
 
   if (tableBodyEl) {
     tableBodyEl.innerHTML = '';
@@ -359,6 +372,13 @@ function renderSnapshots() {
 
       const participantsTd = document.createElement('td');
       participantsTd.textContent = String(row.participants);
+      if (row.delta > 0) {
+        participantsTd.className = 'participants-up';
+      } else if (row.delta < 0) {
+        participantsTd.className = 'participants-down';
+      } else {
+        participantsTd.className = 'participants-same';
+      }
       tr.appendChild(participantsTd);
 
       const deltaTd = document.createElement('td');
@@ -404,7 +424,7 @@ function renderSnapshots() {
 }
 
 function renderCharts() {
-  if (!chartTotalEl || !chartChangesEl || snapshots.length === 0) return;
+  if (!chartTotalEl || !chartChangesEl || !chartTopChangesEl || snapshots.length === 0) return;
 
   const totalSeries = snapshots.map(snap => {
     const groups = snap.groups || {};
@@ -441,6 +461,21 @@ function renderCharts() {
     { name: 'Падение', color: '#c62828', data: changeSeries.map(s => s.down) },
     { name: 'Без изменений', color: '#616161', data: changeSeries.map(s => s.same) }
   ]);
+
+  const lastSnapshot = snapshots[snapshots.length - 1];
+  const prevSnapshot = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
+  const allRows = buildRowsForSnapshot(lastSnapshot, prevSnapshot);
+  const changedRows = allRows
+    .filter(r => r.delta !== 0)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const zeroRows = allRows
+    .filter(r => r.delta === 0)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  const topChanges = changedRows.slice(0, 10);
+  while (topChanges.length < 10 && zeroRows.length > 0) {
+    topChanges.push(zeroRows.shift());
+  }
+  drawBarChart(chartTopChangesEl, topChanges);
 }
 
 function drawLineChart(canvas, seriesList) {
@@ -468,6 +503,27 @@ function drawLineChart(canvas, seriesList) {
   ctx.lineTo(width - padding, height - padding);
   ctx.stroke();
 
+  ctx.fillStyle = '#666';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('Снимки', width / 2 - 20, height - 8);
+  ctx.save();
+  ctx.translate(12, height / 2 + 20);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Значение', 0, 0);
+  ctx.restore();
+
+  // Легенда
+  const legendX = padding + 4;
+  let legendY = padding - 10;
+  ctx.font = '12px sans-serif';
+  seriesList.forEach(series => {
+    legendY += 14;
+    ctx.fillStyle = series.color;
+    ctx.fillRect(legendX, legendY - 9, 10, 10);
+    ctx.fillStyle = '#333';
+    ctx.fillText(series.name, legendX + 14, legendY);
+  });
+
   seriesList.forEach(series => {
     const data = series.data;
     ctx.strokeStyle = series.color;
@@ -491,6 +547,62 @@ function drawLineChart(canvas, seriesList) {
       ctx.arc(x, y, 3, 0, Math.PI * 2);
       ctx.fill();
     });
+  });
+}
+
+function drawBarChart(canvas, rows) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const padding = 40;
+  ctx.clearRect(0, 0, width, height);
+
+  if (!rows.length) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Нет изменений', padding, height / 2);
+    return;
+  }
+
+  const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r.delta)));
+  const barAreaWidth = width - padding * 2;
+  const barHeight = Math.max(18, Math.floor((height - padding * 2) / rows.length) - 6);
+  const centerX = padding + barAreaWidth / 2;
+
+  ctx.strokeStyle = '#e0e0e0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(centerX, padding);
+  ctx.lineTo(centerX, height - padding);
+  ctx.stroke();
+
+  ctx.fillStyle = '#666';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('Группы', padding, height - 8);
+  ctx.save();
+  ctx.translate(12, height / 2 + 20);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Δ участников', 0, 0);
+  ctx.restore();
+
+  rows.forEach((row, idx) => {
+    const y = padding + idx * (barHeight + 6);
+    const barWidth = (Math.abs(row.delta) / maxAbs) * (barAreaWidth / 2);
+    const isUp = row.delta > 0;
+    const x = isUp ? centerX : centerX - barWidth;
+
+    ctx.fillStyle = isUp ? '#a5d6a7' : '#ef9a9a';
+    ctx.fillRect(x, y, barWidth, barHeight);
+
+    if (row.delta !== 0) {
+      ctx.fillStyle = '#333';
+      ctx.font = '12px sans-serif';
+      const label = `${row.name} (${row.delta > 0 ? '+' : ''}${row.delta})`;
+      const textX = isUp ? centerX + 6 : padding;
+      ctx.fillText(label, textX, y + barHeight - 4);
+    }
   });
 }
 

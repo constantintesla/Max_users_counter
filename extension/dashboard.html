@@ -35,6 +35,14 @@
       <div class="summary-item summary-flag">Цифровой вуз админ: <span id="summary-digitalvuz">0</span></div>
       <div class="summary-item summary-flag">Константин Хлыстов админ: <span id="summary-khlstov">0</span></div>
       <div class="summary-item summary-flag">Статистика чатов ДВФУ: <span id="summary-dvfu">0</span></div>
+      <div class="summary-item summary-flag">Процент от 2723: <span id="summary-percent">0%</span></div>
+    </div>
+
+    <div class="percent-bar">
+      <div class="percent-bar__label">Заполненность от 2723</div>
+      <div class="percent-bar__track">
+        <div id="percentBarFill" class="percent-bar__fill"></div>
+      </div>
     </div>
 
     <div id="emptyState" class="empty-state">Нет данных. Нажмите «Собрать сейчас».</div>
@@ -47,6 +55,10 @@
       <div class="chart-card">
         <div class="chart-title">Динамика групп (рост/падение/без изменений)</div>
         <canvas id="chartChanges" width="1000" height="260"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Топ изменений по группам (последний снимок)</div>
+        <canvas id="chartTopChanges" width="1000" height="300"></canvas>
       </div>
     </div>
 
