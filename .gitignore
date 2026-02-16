@@ -1,0 +1,17 @@
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.zip
+*.csv
+
+node_modules/
+dist/
+build/
+out/
+coverage/
+
+.vscode/
+.idea/
+.cursor/

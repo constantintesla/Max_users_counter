@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>imct_counter — Дашборд</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Дашборд imct_counter</h1>
+
+    <div class="controls">
+      <button id="collectBtn" class="btn btn-primary">Собрать сейчас</button>
+      <button id="sendBtn" class="btn btn-info">Отправить в Google</button>
+      <button id="loadBtn" class="btn btn-info">Загрузить из Google</button>
+      <div id="lastUpdated" class="muted">Последний снимок: —</div>
+    </div>
+
+    <div class="status-section">
+      <div id="status" class="status">Готов к работе</div>
+      <div id="progress" class="progress" style="display: none;">
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div id="progress-text" class="progress-text">0 / 0</div>
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="summary-item">Всего групп: <span id="summary-total">0</span></div>
+      <div class="summary-item summary-up">Рост: <span id="summary-up">0</span></div>
+      <div class="summary-item summary-down">Падение: <span id="summary-down">0</span></div>
+      <div class="summary-item summary-same">Без изменений: <span id="summary-same">0</span></div>
+      <div class="summary-item summary-flag">Цифровой вуз админ: <span id="summary-digitalvuz">0</span></div>
+      <div class="summary-item summary-flag">Константин Хлыстов админ: <span id="summary-khlstov">0</span></div>
+      <div class="summary-item summary-flag">Статистика чатов ДВФУ: <span id="summary-dvfu">0</span></div>
+    </div>
+
+    <div id="emptyState" class="empty-state">Нет данных. Нажмите «Собрать сейчас».</div>
+
+    <div id="charts" class="charts" style="display: none;">
+      <div class="chart-card">
+        <div class="chart-title">Сумма участников по снимкам</div>
+        <canvas id="chartTotal" width="1000" height="260"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Динамика групп (рост/падение/без изменений)</div>
+        <canvas id="chartChanges" width="1000" height="260"></canvas>
+      </div>
+    </div>
+
+    <table class="table" id="resultsTable" style="display: none;">
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>Участники</th>
+          <th>Δ</th>
+          <th>Админы</th>
+          <th>Владельцы</th>
+          <th>Цифровой вуз админ</th>
+          <th>Константин Хлыстов админ</th>
+          <th>Статистика чатов ДВФУ</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

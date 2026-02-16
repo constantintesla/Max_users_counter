@@ -9,7 +9,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://web.max.ru/*"
+    "https://web.max.ru/*",
+    "https://script.google.com/*"
   ],
   "background": {
     "service_worker": "background.js"

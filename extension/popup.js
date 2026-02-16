@@ -2,7 +2,7 @@ let isRunning = false;
 let collectedData = [];
 
 // Элементы интерфейса
-let startBtn, testBtn, stopBtn, resetBtn, exportBtn, status, progress, progressFill, progressText, results, resultsCount;
+let startBtn, testBtn, stopBtn, resetBtn, exportBtn, dashboardBtn, status, progress, progressFill, progressText, results, resultsCount;
 
 // Функция для получения элементов интерфейса
 function getUIElements() {
@@ -11,6 +11,7 @@ function getUIElements() {
   stopBtn = document.getElementById('stopBtn');
   resetBtn = document.getElementById('resetBtn');
   exportBtn = document.getElementById('exportBtn');
+  dashboardBtn = document.getElementById('dashboardBtn');
   status = document.getElementById('status');
   progress = document.getElementById('progress');
   progressFill = document.getElementById('progress-fill');
@@ -310,6 +311,14 @@ function setupEventListeners() {
       }
       
       exportToCSV(collectedData);
+    });
+  }
+
+  // Обработчик кнопки "Открыть дашборд"
+  if (dashboardBtn) {
+    dashboardBtn.addEventListener('click', () => {
+      const url = chrome.runtime.getURL('dashboard.html');
+      chrome.tabs.create({ url });
     });
   }
 }

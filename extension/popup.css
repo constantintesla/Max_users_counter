@@ -130,6 +130,15 @@ h1 {
   background: #388e3c;
 }
 
+.btn-info {
+  background: #607d8b;
+  color: white;
+}
+
+.btn-info:hover {
+  background: #546e7a;
+}
+
 .btn-danger {
   background: #ff5722;
   color: white;

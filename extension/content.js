@@ -64,111 +64,88 @@ function waitForElement(selector, timeout = 10000) {
   });
 }
 
-// Функция скролла для загрузки всех чатов
-async function scrollToLoadAllChats(container) {
-  let previousChatCount = 0;
-  let currentChatCount = 0;
-  let scrollAttempts = 0;
-  const maxScrollAttempts = 100;
-  let noChangeCount = 0;
-  let lastScrollHeight = 0;
-
-  do {
-    previousChatCount = currentChatCount;
-    lastScrollHeight = container.scrollHeight;
-    
-    // Скроллим вниз - используем разные методы для надежности
-    const scrollPosition = container.scrollHeight - container.clientHeight;
-    container.scrollTop = scrollPosition;
-    
-    // Также пробуем программный скролл
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: 'auto'
-    });
-    
-    await wait(500);
-    
-    // Считаем чаты - используем те же селекторы, что и в findAllChats
-    const chats = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb, .svelte-q2jdqb');
-    currentChatCount = chats.length;
-    
-    scrollAttempts++;
-    
-    // Если количество не изменилось, увеличиваем счетчик
-    if (currentChatCount === previousChatCount) {
-      noChangeCount++;
-      
-      // Если 5 раз подряд не изменилось, проверяем, можем ли еще прокрутить
-      if (noChangeCount >= 5) {
-        // Проверяем, достигли ли мы конца скролла
-        const currentScrollTop = container.scrollTop;
-        const maxScrollTop = container.scrollHeight - container.clientHeight;
-        const isAtBottom = Math.abs(currentScrollTop - maxScrollTop) < 10;
-        
-        if (isAtBottom) {
-          break;
-        } else {
-          // Пробуем еще раз с небольшим скроллом
-          container.scrollTop += 100;
-          await wait(500);
-          const newChats = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb, .svelte-q2jdqb');
-          if (newChats.length === currentChatCount) {
-            break;
-          }
-          currentChatCount = newChats.length;
-          noChangeCount = 0;
-        }
-      } else {
-        await wait(300);
-        container.scrollTop = container.scrollHeight;
-        await wait(500);
-      }
-    } else {
-      noChangeCount = 0; // Сбрасываем счетчик при изменении
-    }
-    
-    // Дополнительная проверка: если scrollHeight не изменился, возможно достигли конца
-    if (container.scrollHeight === lastScrollHeight && currentChatCount === previousChatCount) {
-      noChangeCount++;
-      if (noChangeCount >= 3) {
-        break;
-      }
-    }
-    
-  } while (scrollAttempts < maxScrollAttempts);
-  
-  return currentChatCount;
+// Нормализация названия чата для сравнения
+function normalizeChatName(name) {
+  return (name || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-// Функция поиска всех чатов
-function findAllChats() {
-  // Ищем контейнер со списком чатов - пробуем разные варианты
-  // Сначала ищем по правильному классу скролла
-  let container = document.querySelector('.scrollable.scrollListScrollable, .scrollListScrollable, [class*="scrollListScrollable"]');
-  
-  // Если не нашли, пробуем старый селектор
-  if (!container) {
-    container = document.querySelector('.svelte-1u8ha7t');
-  }
-  
-  // Если не нашли по классу, ищем по структуре
-  if (!container) {
-    // Ищем контейнер со скроллом, который содержит чаты
-    const scrollContainers = document.querySelectorAll('[class*="scrollable"], [class*="scroll"], [class*="content"], [class*="list"]');
-    for (const scrollContainer of scrollContainers) {
-      const hasChats = scrollContainer.querySelectorAll('.svelte-q2jdqb, [role="presentation"].wrapper').length > 0;
-      if (hasChats) {
-        container = scrollContainer;
-        break;
+const SKIP_CHAT_NAMES = new Set([
+  normalizeChatName('Сборище ебать какие тупых обезьян сука в Максе')
+]);
+
+function shouldSkipChatName(name) {
+  const normalized = normalizeChatName(name);
+  return SKIP_CHAT_NAMES.has(normalized);
+}
+
+// Проверка совпадения названий чатов
+function isChatNameMatch(candidate, target) {
+  if (!candidate || !target) return false;
+  return candidate === target || candidate.includes(target) || target.includes(candidate);
+}
+
+// Поиск элемента чата по названию в указанном корне
+function findChatElementByNameInRoot(chatName, root) {
+  const target = normalizeChatName(chatName);
+  if (!target) return null;
+  const searchRoot = root || document;
+  const allChatElements = searchRoot.querySelectorAll(
+    '[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb'
+  );
+  let fallbackMatch = null;
+  for (const el of allChatElements) {
+    const nameElement = el.querySelector('h3.title span.name span.text') ||
+      el.querySelector('h3.title span.name') ||
+      el.querySelector('h3.title') ||
+      el.querySelector('.title');
+    if (nameElement) {
+      const name = normalizeChatName(nameElement.textContent);
+      if (name === target) {
+        return el.querySelector('button.cell') || el.querySelector('button') || el;
+      }
+      if (!fallbackMatch && isChatNameMatch(name, target)) {
+        fallbackMatch = el.querySelector('button.cell') || el.querySelector('button') || el;
       }
     }
   }
-  
-  if (!container) {
-    throw new Error('Контейнер со списком чатов не найден. Убедитесь, что вы находитесь на странице со списком чатов.');
+  return fallbackMatch;
+}
+
+// Поиск элемента чата по названию с прокруткой списка
+async function findChatElementWithScroll(chatName, scrollContainer) {
+  let found = findChatElementByNameInRoot(chatName, scrollContainer || document);
+  if (found) return found;
+  if (!scrollContainer) return null;
+
+  // Идем с начала списка вниз, чтобы пройти все виртуализированные элементы
+  scrollContainer.scrollTop = 0;
+  await wait(300);
+  found = findChatElementByNameInRoot(chatName, scrollContainer);
+  if (found) return found;
+
+  const maxScrolls = 80;
+  const step = Math.max(100, Math.floor(scrollContainer.clientHeight * 0.8));
+  let lastScrollTop = -1;
+
+  for (let i = 0; i < maxScrolls; i++) {
+    const nextTop = Math.min(scrollContainer.scrollTop + step, scrollContainer.scrollHeight);
+    scrollContainer.scrollTop = nextTop;
+    await wait(300);
+    found = findChatElementByNameInRoot(chatName, scrollContainer);
+    if (found) return found;
+
+    const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 2;
+    if (scrollContainer.scrollTop === lastScrollTop && atBottom) {
+      break;
+    }
+    lastScrollTop = scrollContainer.scrollTop;
   }
-  
+
+  return null;
+}
+
+// Извлекаем список чатов из указанного контейнера
+function extractChatsFromContainer(container) {
   // Находим все элементы чатов - ищем по структуре wrapper
   // Структура: div[role="presentation"].wrapper.wrapper--withActions.svelte-q2jdqb
   let chatElements = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb');
@@ -360,6 +337,11 @@ function findAllChats() {
     
     const name = nameElement ? nameElement.textContent.trim() : `Чат ${index + 1}`;
     
+    // Пропускаем чаты из списка исключений
+    if (shouldSkipChatName(name)) {
+      return;
+    }
+    
     // Пропускаем пустые элементы
     if (!name || name.length === 0) {
       return;
@@ -385,13 +367,167 @@ function findAllChats() {
     });
   });
   
+  return chats;
+}
+
+// Собираем все чаты, проходя список с прокруткой (для виртуализированного списка)
+async function collectChatsByScrolling(container) {
+  const collected = new Map();
+  const addChats = (chats) => {
+    chats.forEach(chat => {
+      const urlKey = chat.url ? normalizeUrl(chat.url) : '';
+      const nameKey = normalizeChatName(chat.name);
+      const key = urlKey || `name:${nameKey}`;
+      if (!key) return;
+      if (!collected.has(key)) {
+        collected.set(key, chat);
+      }
+    });
+  };
+  
+  container.scrollTop = 0;
+  await wait(500);
+  addChats(extractChatsFromContainer(container));
+  
+  const step = Math.max(200, Math.floor(container.clientHeight * 0.8));
+  let lastSize = collected.size;
+  let noChangeCount = 0;
+  
+  for (let i = 0; i < 120; i++) {
+    const nextTop = Math.min(container.scrollTop + step, container.scrollHeight);
+    container.scrollTop = nextTop;
+    await wait(500);
+    addChats(extractChatsFromContainer(container));
+    
+    if (collected.size === lastSize) {
+      noChangeCount++;
+    } else {
+      noChangeCount = 0;
+      lastSize = collected.size;
+    }
+    
+    const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2;
+    if (atBottom && noChangeCount >= 4) {
+      break;
+    }
+  }
+  
+  return Array.from(collected.values());
+}
+
+// Функция скролла для загрузки всех чатов
+async function scrollToLoadAllChats(container) {
+  let previousChatCount = 0;
+  let currentChatCount = 0;
+  let scrollAttempts = 0;
+  const maxScrollAttempts = 100;
+  let noChangeCount = 0;
+  let lastScrollHeight = 0;
+
+  do {
+    previousChatCount = currentChatCount;
+    lastScrollHeight = container.scrollHeight;
+    
+    // Скроллим вниз - используем разные методы для надежности
+    const scrollPosition = container.scrollHeight - container.clientHeight;
+    container.scrollTop = scrollPosition;
+    
+    // Также пробуем программный скролл
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'auto'
+    });
+    
+    await wait(500);
+    
+    // Считаем чаты - используем те же селекторы, что и в findAllChats
+    const chats = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb, .svelte-q2jdqb');
+    currentChatCount = chats.length;
+    
+    scrollAttempts++;
+    
+    // Если количество не изменилось, увеличиваем счетчик
+    if (currentChatCount === previousChatCount) {
+      noChangeCount++;
+      
+      // Если 5 раз подряд не изменилось, проверяем, можем ли еще прокрутить
+      if (noChangeCount >= 5) {
+        // Проверяем, достигли ли мы конца скролла
+        const currentScrollTop = container.scrollTop;
+        const maxScrollTop = container.scrollHeight - container.clientHeight;
+        const isAtBottom = Math.abs(currentScrollTop - maxScrollTop) < 10;
+        
+        if (isAtBottom) {
+          break;
+        } else {
+          // Пробуем еще раз с небольшим скроллом
+          container.scrollTop += 100;
+          await wait(500);
+          const newChats = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb, .svelte-q2jdqb');
+          if (newChats.length === currentChatCount) {
+            break;
+          }
+          currentChatCount = newChats.length;
+          noChangeCount = 0;
+        }
+      } else {
+        await wait(300);
+        container.scrollTop = container.scrollHeight;
+        await wait(500);
+      }
+    } else {
+      noChangeCount = 0; // Сбрасываем счетчик при изменении
+    }
+    
+    // Дополнительная проверка: если scrollHeight не изменился, возможно достигли конца
+    if (container.scrollHeight === lastScrollHeight && currentChatCount === previousChatCount) {
+      noChangeCount++;
+      if (noChangeCount >= 3) {
+        break;
+      }
+    }
+    
+  } while (scrollAttempts < maxScrollAttempts);
+  
+  return currentChatCount;
+}
+
+// Функция поиска всех чатов
+function findAllChats() {
+  // Ищем контейнер со списком чатов - пробуем разные варианты
+  // Сначала ищем по правильному классу скролла
+  let container = document.querySelector('.scrollable.scrollListScrollable, .scrollListScrollable, [class*="scrollListScrollable"]');
+  
+  // Если не нашли, пробуем старый селектор
+  if (!container) {
+    container = document.querySelector('.svelte-1u8ha7t');
+  }
+  
+  // Если не нашли по классу, ищем по структуре
+  if (!container) {
+    // Ищем контейнер со скроллом, который содержит чаты
+    const scrollContainers = document.querySelectorAll('[class*="scrollable"], [class*="scroll"], [class*="content"], [class*="list"]');
+    for (const scrollContainer of scrollContainers) {
+      const hasChats = scrollContainer.querySelectorAll('.svelte-q2jdqb, [role="presentation"].wrapper').length > 0;
+      if (hasChats) {
+        container = scrollContainer;
+        break;
+      }
+    }
+  }
+  
+  if (!container) {
+    throw new Error('Контейнер со списком чатов не найден. Убедитесь, что вы находитесь на странице со списком чатов.');
+  }
+  
+  const chats = extractChatsFromContainer(container);
   return { container, chats };
 }
 
 // Функция извлечения данных из чата
 async function extractChatData() {
-  // Ждем загрузки информации о чате (уменьшено с 2000 до 800)
-  await wait(800);
+  // Ждем загрузки информации о чате (уменьшено для ускорения)
+  await wait(500);
   
   // Проверяем, что мы на странице группового чата (URL начинается с /-число)
   // Формат: https://web.max.ru/-71128136750354
@@ -490,8 +626,8 @@ async function extractChatData() {
   let hasDigitalVuzBot = false;
   
   try {
-    // Увеличиваем время ожидания загрузки страницы чата
-    await wait(1500);
+    // Увеличиваем время ожидания загрузки страницы чата (уменьшено для ускорения)
+    await wait(600);
     
     // Проверяем, не находимся ли мы уже на странице со списком участников
     // Ищем контейнер content svelte-13fay8c или другие признаки страницы участников
@@ -640,37 +776,7 @@ async function extractChatData() {
       
       // Прокручиваем к кнопке, чтобы она была видна
       buttonElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-      await wait(500);
-      
-      // Прокручиваем к кнопке еще раз для надежности
-      buttonElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await wait(1000);
-      
-      // Проверяем, что кнопка видима и в DOM
-      const rect = buttonElement.getBoundingClientRect();
-      const isVisible = rect.width > 0 && rect.height > 0 && 
-                       rect.top >= 0 && rect.left >= 0 &&
-                       rect.bottom <= window.innerHeight && 
-                       rect.right <= window.innerWidth;
-      const isConnected = buttonElement.isConnected;
-      
-      console.error(`[imct_counter] Кнопка видима: ${isVisible}, в DOM: ${isConnected}, позиция: top=${rect.top}, left=${rect.left}`);
-      
-      if (!isVisible || !isConnected) {
-        console.error('[imct_counter] Кнопка не видима или не в DOM, пробуем прокрутить еще раз');
-        buttonElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await wait(1500);
-        
-        // Проверяем еще раз
-        const rect2 = buttonElement.getBoundingClientRect();
-        const isVisible2 = rect2.width > 0 && rect2.height > 0 && 
-                          rect2.top >= 0 && rect2.left >= 0 &&
-                          rect2.bottom <= window.innerHeight && 
-                          rect2.right <= window.innerWidth;
-        if (!isVisible2 || !buttonElement.isConnected) {
-          console.error('[imct_counter] ВНИМАНИЕ: Кнопка все еще не видима или не в DOM');
-        }
-      }
+      await wait(200);
       
       // Пробуем кликнуть разными способами
       let clickSuccess = false;
@@ -689,124 +795,20 @@ async function extractChatData() {
           console.error('[imct_counter] Ошибка при focus + обычном клике:', e);
         }
         
-        // Способ 2: Программный MouseEvent с полными параметрами
+        // Способ 2: Программный MouseEvent
         if (!clickSuccess) {
           try {
-            console.error('[imct_counter] Пробуем MouseEvent клик с полными параметрами');
-            const rect = buttonElement.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            
-            const mouseDownEvent = new MouseEvent('mousedown', {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-              detail: 1,
-              buttons: 1,
-              clientX: x,
-              clientY: y,
-              screenX: x,
-              screenY: y
-            });
-            const mouseUpEvent = new MouseEvent('mouseup', {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-              detail: 1,
-              buttons: 1,
-              clientX: x,
-              clientY: y,
-              screenX: x,
-              screenY: y
-            });
             const clickEvent = new MouseEvent('click', {
               bubbles: true,
               cancelable: true,
               view: window,
-              detail: 1,
-              buttons: 1,
-              clientX: x,
-              clientY: y,
-              screenX: x,
-              screenY: y
+              buttons: 1
             });
-            
-            buttonElement.dispatchEvent(mouseDownEvent);
-            await wait(50);
-            buttonElement.dispatchEvent(mouseUpEvent);
-            await wait(50);
             buttonElement.dispatchEvent(clickEvent);
             clickSuccess = true;
-            console.error('[imct_counter] MouseEvent клик с полными параметрами выполнен');
+            console.error('[imct_counter] MouseEvent клик выполнен');
           } catch (e) {
             console.error('[imct_counter] Ошибка при MouseEvent клике:', e);
-          }
-        }
-        
-        // Способ 3: mousedown + mouseup + click с координатами
-        if (!clickSuccess) {
-          try {
-            console.error('[imct_counter] Пробуем mousedown + mouseup + click с координатами');
-            const rect = buttonElement.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            
-            const mouseDownEvent = new MouseEvent('mousedown', {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-              detail: 1,
-              buttons: 1,
-              clientX: x,
-              clientY: y
-            });
-            const mouseUpEvent = new MouseEvent('mouseup', {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-              detail: 1,
-              buttons: 1,
-              clientX: x,
-              clientY: y
-            });
-            const clickEvent = new MouseEvent('click', {
-              bubbles: true,
-              cancelable: true,
-              view: window,
-              detail: 1,
-              buttons: 1,
-              clientX: x,
-              clientY: y
-            });
-            
-            buttonElement.dispatchEvent(mouseDownEvent);
-            await wait(100);
-            buttonElement.dispatchEvent(mouseUpEvent);
-            await wait(100);
-            buttonElement.dispatchEvent(clickEvent);
-            clickSuccess = true;
-            console.error('[imct_counter] mousedown + mouseup + click с координатами выполнены');
-          } catch (e) {
-            console.error('[imct_counter] Ошибка при mousedown/mouseup/click:', e);
-          }
-        }
-        
-        // Способ 4: Пробуем кликнуть по координатам через document.elementFromPoint
-        if (!clickSuccess) {
-          try {
-            console.error('[imct_counter] Пробуем клик по координатам через elementFromPoint');
-            const rect = buttonElement.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            
-            const elementAtPoint = document.elementFromPoint(x, y);
-            if (elementAtPoint) {
-              elementAtPoint.click();
-              clickSuccess = true;
-              console.error('[imct_counter] Клик по координатам через elementFromPoint выполнен');
-            }
-          } catch (e) {
-            console.error('[imct_counter] Ошибка при клике по координатам через elementFromPoint:', e);
           }
         }
         
@@ -816,12 +818,12 @@ async function extractChatData() {
         
         // Ждем и проверяем, что список участников открылся (только если мы не уже на странице участников)
         if (!hasParticipantsPage) {
-          // Увеличиваем время ожидания и количество проверок
-          await wait(3000);
+          // Увеличиваем время ожидания и количество проверок (уменьшено для ускорения)
+          await wait(200);
           
           // Проверяем, открылся ли список участников
           let participantsOpened = false;
-          for (let checkAttempt = 0; checkAttempt < 10; checkAttempt++) {
+          for (let checkAttempt = 0; checkAttempt < 4; checkAttempt++) {
             // Проверяем наличие модального окна или диалога
             const dialog = document.querySelector('[role="dialog"], .modal, [class*="modal"], [class*="dialog"]');
             const sidebar = document.querySelector('[class*="sidebar"], [class*="panel"], [class*="drawer"], [class*="side"]');
@@ -853,7 +855,7 @@ async function extractChatData() {
               break;
             }
             
-            await wait(500);
+            await wait(200);
           }
         }
     } else if (!hasParticipantsPage && !buttonElement) {
@@ -863,10 +865,10 @@ async function extractChatData() {
       if (headerElement) {
         console.error('[imct_counter] Пробуем кликнуть по header');
         headerElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-        await wait(500);
+        await wait(300);
         try {
           headerElement.click();
-          await wait(2000);
+          await wait(600);
         } catch (e) {
           const clickEvent = new MouseEvent('click', {
             bubbles: true,
@@ -875,7 +877,7 @@ async function extractChatData() {
             buttons: 1
           });
           headerElement.dispatchEvent(clickEvent);
-          await wait(2000);
+          await wait(600);
         }
       }
     }
@@ -891,12 +893,12 @@ async function extractChatData() {
     } else {
       // Иначе ищем контейнер
       let attempts = 0;
-      const maxAttempts = 20; // Увеличено количество попыток
+      const maxAttempts = 8; // Уменьшено количество попыток для ускорения
       
       console.error('[imct_counter] Начинаем поиск контейнера со списком участников');
       
       // Сначала ждем немного, чтобы модальное окно успело открыться
-      await wait(2000);
+      await wait(600);
     
     while (!participantsContainer && attempts < maxAttempts) {
         // Способ 0: Ищем по классу content svelte-13fay8c (специфичный для страницы участников)
@@ -1025,31 +1027,10 @@ async function extractChatData() {
           }
         }
         
-        // Способ 5: Ищем любой элемент с большим количеством аватаров (может быть список участников)
-        if (!participantsContainer) {
-          const allElements = document.querySelectorAll('div, section, aside');
-          for (const el of allElements) {
-            // Проверяем, что это не основной контент чата
-            const isMainChat = el.closest('[class*="chat"], [class*="message"]');
-            if (isMainChat) continue;
-            
-            const avatars = el.querySelectorAll('img[class*="avatar"], [class*="avatar"] img');
-            if (avatars.length >= 3) { // Минимум 3 аватара
-              // Проверяем, что элемент видим
-              const rect = el.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                participantsContainer = el;
-                console.error('[imct_counter] Найден контейнер по большому количеству аватаров');
-                break;
-              }
-            }
-          }
-        }
-        
         if (!participantsContainer) {
           attempts++;
           console.error(`[imct_counter] Контейнер не найден, попытка ${attempts}/${maxAttempts}`);
-          await wait(500); // Ждем и пробуем еще раз
+          await wait(250); // Ждем и пробуем еще раз
         } else {
           console.error('[imct_counter] Контейнер со списком участников найден!');
           break;
@@ -1067,11 +1048,25 @@ async function extractChatData() {
       // Скроллим список участников, чтобы загрузить всех
       let previousCount = 0;
       let scrollAttempts = 0;
-      const maxScrollAttempts = 30; // Увеличено количество попыток
+      const maxScrollAttempts = 20; // Уменьшено количество попыток
+      
+      const getParticipantElements = () => {
+        let elements = participantsContainer.querySelectorAll('[class*="user"], [class*="member"], [class*="participant"]');
+        if (elements.length === 0) {
+          elements = participantsContainer.querySelectorAll('[role="listitem"], [class*="item"], [class*="row"]');
+        }
+        if (elements.length === 0) {
+          const elementsWithAvatars = participantsContainer.querySelectorAll('[class*="avatar"], img[class*="avatar"]');
+          elements = Array.from(elementsWithAvatars).map(avatar => {
+            return avatar.closest('div, li, span, article, section') || avatar.parentElement;
+          }).filter(el => el && el !== participantsContainer);
+        }
+        return elements;
+      };
       
       while (scrollAttempts < maxScrollAttempts) {
-        // Ищем элементы участников
-        const participantElements = participantsContainer.querySelectorAll('[class*="user"], [class*="member"], [class*="participant"], [role="listitem"], [class*="avatar"]');
+        // Ищем элементы участников (через единый набор селекторов)
+        const participantElements = getParticipantElements();
         
         if (participantElements.length === previousCount && previousCount > 0) {
           // Количество не изменилось, возможно все загружено
@@ -1123,7 +1118,7 @@ async function extractChatData() {
           }
         }
         
-        await wait(800); // Увеличено время ожидания для загрузки
+        await wait(400); // Уменьшено время ожидания для загрузки
         
         scrollAttempts++;
       }
@@ -1131,27 +1126,10 @@ async function extractChatData() {
       console.error(`[imct_counter] Скролл завершен. Всего найдено участников: ${previousCount}`);
       
       // Собираем информацию об участниках
-      // Пробуем разные селекторы для элементов участников
       console.error('[imct_counter] Начинаем поиск элементов участников в контейнере');
       
-      let participantElements = participantsContainer.querySelectorAll('[class*="user"], [class*="member"], [class*="participant"]');
-      console.error(`[imct_counter] Найдено элементов по user/member/participant: ${participantElements.length}`);
-      
-      // Если не нашли, пробуем другие варианты
-      if (participantElements.length === 0) {
-        participantElements = participantsContainer.querySelectorAll('[role="listitem"], [class*="item"], [class*="row"]');
-        console.error(`[imct_counter] Найдено элементов по role/listitem/item/row: ${participantElements.length}`);
-      }
-      
-      // Если все еще не нашли, ищем элементы с аватарами
-      if (participantElements.length === 0) {
-        const elementsWithAvatars = participantsContainer.querySelectorAll('[class*="avatar"], img[class*="avatar"]');
-        // Берем родительские элементы аватаров
-        participantElements = Array.from(elementsWithAvatars).map(avatar => {
-          return avatar.closest('div, li, span, article, section') || avatar.parentElement;
-        }).filter(el => el && el !== participantsContainer);
-        console.error(`[imct_counter] Найдено элементов по аватарам: ${participantElements.length}`);
-      }
+      let participantElements = getParticipantElements();
+      console.error(`[imct_counter] Найдено элементов участников: ${participantElements.length}`);
       
       // Если все еще не нашли, ищем по структуре - элементы с аватарами или именами
       if (participantElements.length === 0) {
@@ -1246,32 +1224,35 @@ async function extractChatData() {
         }
       });
       
-      // Закрываем список участников
-      // Пробуем найти кнопку закрытия
-      let closeButton = document.querySelector('[aria-label*="закрыть" i], [aria-label*="close" i], button[class*="close"], [class*="close-button"]');
-      
-      // Если не нашли, ищем кнопку с крестиком или иконкой закрытия
-      if (!closeButton) {
-        const closeIcons = document.querySelectorAll('svg[class*="close"], [class*="icon-close"], button svg');
-        for (const icon of closeIcons) {
-          const button = icon.closest('button');
-          if (button) {
-            closeButton = button;
-            break;
-          }
-        }
+      // Закрываем список участников (сначала через ESC, чтобы не кликать по правой кнопке)
+      for (let i = 0; i < 2; i++) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        await wait(150);
       }
       
-      if (closeButton) {
-        closeButton.click();
-        await wait(500);
-      } else {
-        // Пробуем нажать ESC несколько раз
-        for (let i = 0; i < 3; i++) {
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-          await wait(100);
+      // Если контейнер все еще видим, используем кнопку закрытия
+      const stillVisible = participantsContainer.isConnected && 
+        (participantsContainer.offsetWidth > 0 || participantsContainer.offsetHeight > 0);
+      
+      if (stillVisible) {
+        let closeButton = document.querySelector('[aria-label*="закрыть" i], [aria-label*="close" i], button[class*="close"], [class*="close-button"]');
+        
+        // Если не нашли, ищем кнопку с крестиком или иконкой закрытия
+        if (!closeButton) {
+          const closeIcons = document.querySelectorAll('svg[class*="close"], [class*="icon-close"], button svg');
+          for (const icon of closeIcons) {
+            const button = icon.closest('button');
+            if (button) {
+              closeButton = button;
+              break;
+            }
+          }
         }
-        await wait(300);
+        
+        if (closeButton) {
+          closeButton.click();
+          await wait(400);
+        }
       }
     }
   } catch (error) {
@@ -1344,6 +1325,33 @@ function normalizeUrl(url) {
   }
 }
 
+// Открытие чата по URL (если элемент не найден в DOM)
+async function openChatByUrl(chatUrl) {
+  if (!chatUrl) return false;
+  const normalizedTarget = normalizeUrl(chatUrl);
+  const currentNormalized = normalizeUrl(window.location.href);
+
+  if (normalizedTarget && currentNormalized === normalizedTarget && window.location.href.match(/\/-\d+($|\/)/)) {
+    return true;
+  }
+
+  window.location.href = chatUrl;
+
+  let attempts = 0;
+  while (attempts < 30) {
+    await wait(300);
+    const currentUrl = window.location.href;
+    if (currentUrl.match(/\/-\d+($|\/)/)) {
+      if (!normalizedTarget || normalizeUrl(currentUrl) === normalizedTarget) {
+        return true;
+      }
+    }
+    attempts++;
+  }
+
+  return false;
+}
+
 // Функция сбора всех ссылок на чаты
 async function collectAllChatUrls() {
   try {
@@ -1373,27 +1381,14 @@ async function collectAllChatUrls() {
     }
     
     // Даем время для завершения загрузки
-    await wait(1000);
+    await wait(800);
     
-    // Обновляем список чатов после скролла
+    // Скроллим и собираем чаты по мере прогрузки (виртуализированный список)
     let allChatsAfterScroll;
     try {
-      const result = findAllChats();
-      allChatsAfterScroll = result.chats;
+      allChatsAfterScroll = await collectChatsByScrolling(container);
     } catch (error) {
       allChatsAfterScroll = chats; // Используем исходный список
-    }
-    
-    // Если количество не увеличилось после скролла, пробуем еще раз
-    if (allChatsAfterScroll.length <= chats.length && chats.length < 100) {
-      try {
-        await scrollToLoadAllChats(container);
-        await wait(1000);
-        const result = findAllChats();
-        allChatsAfterScroll = result.chats;
-      } catch (error) {
-        // Игнорируем ошибки
-      }
     }
     
     if (allChatsAfterScroll.length === 0) {
@@ -1550,217 +1545,223 @@ async function collectChatData(maxChats = null) {
           let clickableElement = null;
           let elementFound = false;
           
+          // Сохраняем URL до открытия/клика для проверки изменений
+          const urlBeforeClick = window.location.href;
+          
           // Проверяем, что исходный элемент все еще в DOM
           if (chat.element && chat.element.isConnected) {
             clickableElement = chat.element;
             elementFound = true;
             console.log('[imct_counter] Исходный элемент найден в DOM');
           } else {
-            // Элемент не найден, пробуем найти по названию чата
+            // Элемент не найден, пробуем найти по названию чата с прокруткой
             console.log('[imct_counter] Исходный элемент не найден, ищем по названию...');
-            
-            // Ищем элемент по названию чата
-            const allChatElements = document.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb');
-            for (const el of allChatElements) {
-              const nameElement = el.querySelector('h3.title span.name span.text') ||
-                               el.querySelector('h3.title span.name') ||
-                               el.querySelector('h3.title') ||
-                               el.querySelector('.title');
-              if (nameElement) {
-                const name = nameElement.textContent.trim();
-                if (name === chat.name || name.includes(chat.name) || chat.name.includes(name)) {
-                  clickableElement = el.querySelector('button.cell') || el.querySelector('button') || el;
-                  elementFound = true;
-                  break;
-                }
-              }
+            const foundElement = await findChatElementWithScroll(chat.name, scrollContainer);
+            if (foundElement) {
+              clickableElement = foundElement;
+              elementFound = true;
+              console.log('[imct_counter] Элемент чата найден по названию после скролла');
             }
           }
           
-          // Если элемент не найден, пропускаем этот чат
+          let openedByUrl = false;
+          
+          // Если элемент не найден, пробуем открыть по URL (если есть)
           if (!elementFound || !clickableElement) {
-            console.error(`[imct_counter] Элемент чата "${chat.name}" не найден в DOM, пропускаем`);
-            return;
+            if (chat.url && chat.url.match(/\/-\d+($|\/)/)) {
+              console.log(`[imct_counter] Элемент чата "${chat.name}" не найден, открываем по URL`);
+              const opened = await openChatByUrl(chat.url);
+              if (!opened) {
+                console.error(`[imct_counter] Не удалось открыть чат "${chat.name}" по URL, пропускаем`);
+                return;
+              }
+              openedByUrl = true;
+            } else {
+              console.error(`[imct_counter] Элемент чата "${chat.name}" не найден в DOM, пропускаем`);
+              return;
+            }
           }
           
-          // Сохраняем URL до клика для проверки изменений
-          const urlBeforeClick = window.location.href;
-          
-          // Прокручиваем контейнер, чтобы чат был виден
-          if (scrollContainer) {
-            // Вычисляем позицию элемента относительно контейнера
-            const elementRect = clickableElement.getBoundingClientRect();
-            const containerRect = scrollContainer.getBoundingClientRect();
+          let urlChanged = false;
+
+          if (!openedByUrl) {
+            // Прокручиваем контейнер, чтобы чат был виден
+            if (scrollContainer) {
+              // Вычисляем позицию элемента относительно контейнера
+              const elementRect = clickableElement.getBoundingClientRect();
+              const containerRect = scrollContainer.getBoundingClientRect();
+              
+              // Вычисляем позицию элемента относительно контейнера
+              const elementTop = elementRect.top - containerRect.top + scrollContainer.scrollTop;
+              const elementCenter = elementTop - (containerRect.height / 2) + (elementRect.height / 2);
+              
+              // Прокручиваем контейнер к элементу
+              scrollContainer.scrollTo({
+                top: Math.max(0, elementCenter - 100), // Немного выше центра для лучшей видимости
+                behavior: 'auto'
+              });
+              await wait(400); // Увеличено время ожидания
+            }
             
-            // Вычисляем позицию элемента относительно контейнера
-            const elementTop = elementRect.top - containerRect.top + scrollContainer.scrollTop;
-            const elementCenter = elementTop - (containerRect.height / 2) + (elementRect.height / 2);
+            // Прокручиваем к элементу еще раз перед кликом
+            // Используем несколько попыток для надежности
+            let scrollAttempts = 0;
+            let elementVisible = false;
             
-            // Прокручиваем контейнер к элементу
-            scrollContainer.scrollTo({
-              top: Math.max(0, elementCenter - 100), // Немного выше центра для лучшей видимости
-              behavior: 'auto'
-            });
-            await wait(400); // Увеличено время ожидания
-          }
-          
-          // Прокручиваем к элементу еще раз перед кликом
-          // Используем несколько попыток для надежности
-          let scrollAttempts = 0;
-          let elementVisible = false;
-          
-          while (scrollAttempts < 5) { // Увеличено количество попыток
-            // Проверяем, что элемент все еще в DOM
-            if (!clickableElement.isConnected) {
-              console.error('[imct_counter] Элемент исчез из DOM во время прокрутки');
+            while (scrollAttempts < 5) { // Увеличено количество попыток
+              // Проверяем, что элемент все еще в DOM
+              if (!clickableElement.isConnected) {
+                console.error('[imct_counter] Элемент исчез из DOM во время прокрутки');
+                return;
+              }
+              
+              clickableElement.scrollIntoView({ behavior: 'auto', block: 'center' });
+              await wait(400); // Увеличено время ожидания
+              
+              // Проверяем, что элемент стал видимым
+              const rect = clickableElement.getBoundingClientRect();
+              const isInViewport = rect.top >= -100 && // Более мягкая проверка
+                              rect.left >= -100 && 
+                              rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) + 100 &&
+                              rect.right <= (window.innerWidth || document.documentElement.clientWidth) + 100;
+              
+              const hasSize = clickableElement.offsetHeight > 0 || clickableElement.offsetWidth > 0;
+              
+              if ((isInViewport && hasSize) || clickableElement.offsetHeight > 0) {
+                elementVisible = true;
+                break;
+              }
+              
+              scrollAttempts++;
+            }
+            
+            // Пробуем кликнуть разными способами
+            let clickSuccess = false;
+            
+            // Способ 1: Обычный клик
+            try {
+              clickableElement.click();
+              clickSuccess = true;
+            } catch (clickError) {
+              // Игнорируем ошибки
+            }
+            
+            // Способ 2: Программный MouseEvent
+            if (!clickSuccess) {
+              try {
+                const clickEvent = new MouseEvent('click', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  buttons: 1
+                });
+                clickableElement.dispatchEvent(clickEvent);
+                clickSuccess = true;
+              } catch (eventError) {
+                // Игнорируем ошибки
+              }
+            }
+            
+            // Способ 3: mousedown + mouseup
+            if (!clickSuccess) {
+              try {
+                const mouseDownEvent = new MouseEvent('mousedown', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  buttons: 1
+                });
+                const mouseUpEvent = new MouseEvent('mouseup', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  buttons: 1
+                });
+                clickableElement.dispatchEvent(mouseDownEvent);
+                await wait(50);
+                clickableElement.dispatchEvent(mouseUpEvent);
+                await wait(50);
+                clickableElement.dispatchEvent(new MouseEvent('click', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  buttons: 1
+                }));
+                clickSuccess = true;
+              } catch (eventError) {
+                // Игнорируем ошибки
+              }
+            }
+            
+            if (!clickSuccess) {
               return;
             }
             
-            clickableElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-            await wait(400); // Увеличено время ожидания
+            // Увеличиваем время ожидания загрузки страницы
+            // Используем более быструю проверку с меньшими интервалами
+            let maxWait = 30; // Увеличено с 20 до 30
+            let lastUrl = urlBeforeClick;
+            let stableUrlCount = 0; // Счетчик стабильного URL
             
-            // Проверяем, что элемент стал видимым
-            const rect = clickableElement.getBoundingClientRect();
-            const isInViewport = rect.top >= -100 && // Более мягкая проверка
-                            rect.left >= -100 && 
-                            rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) + 100 &&
-                            rect.right <= (window.innerWidth || document.documentElement.clientWidth) + 100;
-            
-            const hasSize = clickableElement.offsetHeight > 0 || clickableElement.offsetWidth > 0;
-            
-            if ((isInViewport && hasSize) || clickableElement.offsetHeight > 0) {
-              elementVisible = true;
-              break;
-            }
-            
-            scrollAttempts++;
-          }
-          
-          // Пробуем кликнуть разными способами
-          let clickSuccess = false;
-          
-          // Способ 1: Обычный клик
-          try {
-            clickableElement.click();
-            clickSuccess = true;
-          } catch (clickError) {
-            // Игнорируем ошибки
-          }
-          
-          // Способ 2: Программный MouseEvent
-          if (!clickSuccess) {
-            try {
-              const clickEvent = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                buttons: 1
-              });
-              clickableElement.dispatchEvent(clickEvent);
-              clickSuccess = true;
-            } catch (eventError) {
-              // Игнорируем ошибки
-            }
-          }
-          
-          // Способ 3: mousedown + mouseup
-          if (!clickSuccess) {
-            try {
-              const mouseDownEvent = new MouseEvent('mousedown', {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                buttons: 1
-              });
-              const mouseUpEvent = new MouseEvent('mouseup', {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                buttons: 1
-              });
-              clickableElement.dispatchEvent(mouseDownEvent);
-              await wait(50);
-              clickableElement.dispatchEvent(mouseUpEvent);
-              await wait(50);
-              clickableElement.dispatchEvent(new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-                buttons: 1
-              }));
-              clickSuccess = true;
-            } catch (eventError) {
-              // Игнорируем ошибки
-            }
-          }
-          
-          if (!clickSuccess) {
-            return;
-          }
-          
-          // Увеличиваем время ожидания загрузки страницы
-          // Используем более быструю проверку с меньшими интервалами
-          let maxWait = 30; // Увеличено с 20 до 30
-          let urlChanged = false;
-          let lastUrl = urlBeforeClick;
-          let stableUrlCount = 0; // Счетчик стабильного URL
-          
-          while (maxWait > 0) {
-            await wait(300); // Увеличено с 200 до 300 для надежности
-            const currentUrl = window.location.href;
-            
-            // Проверяем, изменился ли URL
-            if (currentUrl !== urlBeforeClick) {
-              // Если URL изменился на формат группового чата - отлично
-              if (currentUrl.match(/\/-\d+($|\/)/)) {
-                // Проверяем, что это действительно новый чат (не тот же самый)
-                const normalizedCurrent = normalizeUrl(currentUrl);
-                const normalizedBefore = normalizeUrl(urlBeforeClick);
+            while (maxWait > 0) {
+              await wait(300); // Увеличено с 200 до 300 для надежности
+              const currentUrl = window.location.href;
+              
+              // Проверяем, изменился ли URL
+              if (currentUrl !== urlBeforeClick) {
+                // Если URL изменился на формат группового чата - отлично
+                if (currentUrl.match(/\/-\d+($|\/)/)) {
+                  // Проверяем, что это действительно новый чат (не тот же самый)
+                  const normalizedCurrent = normalizeUrl(currentUrl);
+                  const normalizedBefore = normalizeUrl(urlBeforeClick);
+                  
+                  if (normalizedCurrent !== normalizedBefore) {
+                    urlChanged = true;
+                    console.log(`[imct_counter] Чат открылся: ${currentUrl}`);
+                    break;
+                  } else {
+                    // Это тот же чат, возможно клик не сработал
+                    console.log(`[imct_counter] URL не изменился (тот же чат): ${currentUrl}`);
+                    // Пробуем вернуться и кликнуть еще раз
+                    await goBackToList();
+                    await wait(1000);
+                    return; // Выходим, чтобы попробовать следующий чат
+                  }
+                }
                 
-                if (normalizedCurrent !== normalizedBefore) {
-                  urlChanged = true;
-                  console.log(`[imct_counter] Чат открылся: ${currentUrl}`);
+                // Если URL изменился, но не на групповой чат
+                if (currentUrl !== lastUrl) {
+                  console.log(`[imct_counter] URL изменился, но не на групповой чат: ${currentUrl}`);
+                  // Даем еще немного времени на загрузку
+                  await wait(500);
+                  const finalUrl = window.location.href;
+                  if (finalUrl.match(/\/-\d+($|\/)/)) {
+                    urlChanged = true;
+                    break;
+                  }
+                  // Если все еще не групповой чат - пропускаем
+                  console.log(`[imct_counter] Чат не является групповым. URL: ${finalUrl}`);
+                  if (finalUrl !== urlBeforeClick && finalUrl !== 'https://web.max.ru/') {
+                    // Пробуем вернуться назад
+                    await goBackToList();
+                  }
+                  return; // Выходим из Promise, но продолжаем цикл
+                }
+              } else {
+                // URL не изменился
+                stableUrlCount++;
+                // Если URL не меняется 5 раз подряд, считаем что клик не сработал
+                if (stableUrlCount >= 5) {
+                  console.log(`[imct_counter] URL не изменился после ${stableUrlCount} проверок, клик не сработал`);
                   break;
-                } else {
-                  // Это тот же чат, возможно клик не сработал
-                  console.log(`[imct_counter] URL не изменился (тот же чат): ${currentUrl}`);
-                  // Пробуем вернуться и кликнуть еще раз
-                  await goBackToList();
-                  await wait(1000);
-                  return; // Выходим, чтобы попробовать следующий чат
                 }
               }
               
-              // Если URL изменился, но не на групповой чат
-              if (currentUrl !== lastUrl) {
-                console.log(`[imct_counter] URL изменился, но не на групповой чат: ${currentUrl}`);
-                // Даем еще немного времени на загрузку
-                await wait(500);
-                const finalUrl = window.location.href;
-                if (finalUrl.match(/\/-\d+($|\/)/)) {
-                  urlChanged = true;
-                  break;
-                }
-                // Если все еще не групповой чат - пропускаем
-                console.log(`[imct_counter] Чат не является групповым. URL: ${finalUrl}`);
-                if (finalUrl !== urlBeforeClick && finalUrl !== 'https://web.max.ru/') {
-                  // Пробуем вернуться назад
-                  await goBackToList();
-                }
-                return; // Выходим из Promise, но продолжаем цикл
-              }
-            } else {
-              // URL не изменился
-              stableUrlCount++;
-              // Если URL не меняется 5 раз подряд, считаем что клик не сработал
-              if (stableUrlCount >= 5) {
-                console.log(`[imct_counter] URL не изменился после ${stableUrlCount} проверок, клик не сработал`);
-                break;
-              }
+              lastUrl = currentUrl;
+              maxWait--;
             }
-            
-            lastUrl = currentUrl;
-            maxWait--;
+          } else {
+            urlChanged = true;
           }
           
           // Если URL не изменился, возможно чат не открылся - пропускаем
@@ -1934,7 +1935,8 @@ function sendCompleted() {
   
   chrome.storage.local.set({ 
     isRunning: false, 
-    collectedData: collectedData 
+    collectedData: collectedData,
+    lastCollectedAt: Date.now()
   });
 }
 
