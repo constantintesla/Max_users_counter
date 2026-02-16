@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "imct_counter",
+  "version": "1.0.0",
+  "description": "Автоматический сбор информации о количестве участников в групповых чатах Max",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://web.max.ru/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.max.ru/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

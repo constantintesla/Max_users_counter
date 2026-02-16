@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>imct_counter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>imct_counter</h1>
+    
+    <div class="status-section">
+      <div id="status" class="status">Готов к работе</div>
+      <div id="progress" class="progress" style="display: none;">
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div id="progress-text" class="progress-text">0 / 0</div>
+      </div>
+    </div>
+
+          <div class="buttons-section">
+            <button id="startBtn" class="btn btn-primary">Начать сбор данных</button>
+            <button id="testBtn" class="btn btn-primary" style="background-color: #ff9800;">Тест (3 группы)</button>
+            <button id="stopBtn" class="btn btn-secondary" style="display: none;">Остановить</button>
+            <button id="resetBtn" class="btn btn-danger" style="display: none;">Сбросить данные</button>
+            <button id="exportBtn" class="btn btn-success" style="display: none;">Экспорт в CSV</button>
+          </div>
+
+    <div id="results" class="results" style="display: none;">
+      <h3>Результаты:</h3>
+      <div id="results-count">Обработано чатов: 0</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
