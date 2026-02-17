@@ -99,6 +99,9 @@ function doPost(e) {
   }
 
   (body.rows || []).forEach(r => {
+    // Используем participants_list в первую очередь, затем participantsListStr для обратной совместимости
+    const participantsList = r.participants_list || r.participantsListStr || '';
+    
     sheet.appendRow([
       body.ts || new Date().toISOString(),
       body.userId || '',
@@ -111,7 +114,7 @@ function doPost(e) {
       r.hasDigitalVuzAdmin ? 'yes' : 'no',
       r.hasKhlstovAdmin ? 'yes' : 'no',
       r.hasDvfuStatsUser ? 'yes' : 'no',
-      r.participantsListStr || ''
+      participantsList
     ]);
   });
 

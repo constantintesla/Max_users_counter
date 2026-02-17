@@ -2,7 +2,7 @@ let isRunning = false;
 let collectedData = [];
 
 // Элементы интерфейса
-let startBtn, testBtn, stopBtn, resetBtn, exportBtn, dashboardBtn, status, progress, progressFill, progressText, results, resultsCount;
+let startBtn, testBtn, stopBtn, resetBtn, exportBtn, sendBtn, loadBtn, dashboardBtn, status, progress, progressFill, progressText, results, resultsCount;
 
 // Функция для получения элементов интерфейса
 function getUIElements() {
@@ -11,6 +11,8 @@ function getUIElements() {
   stopBtn = document.getElementById('stopBtn');
   resetBtn = document.getElementById('resetBtn');
   exportBtn = document.getElementById('exportBtn');
+  sendBtn = document.getElementById('sendBtn');
+  loadBtn = document.getElementById('loadBtn');
   dashboardBtn = document.getElementById('dashboardBtn');
   status = document.getElementById('status');
   progress = document.getElementById('progress');
@@ -314,6 +316,22 @@ function setupEventListeners() {
     });
   }
 
+  // Обработчик кнопки "Отправить в Google"
+  if (sendBtn) {
+    sendBtn.addEventListener('click', () => {
+      const url = chrome.runtime.getURL('dashboard.html');
+      chrome.tabs.create({ url });
+    });
+  }
+
+  // Обработчик кнопки "Загрузить из Google"
+  if (loadBtn) {
+    loadBtn.addEventListener('click', () => {
+      const url = chrome.runtime.getURL('dashboard.html');
+      chrome.tabs.create({ url });
+    });
+  }
+
   // Обработчик кнопки "Открыть дашборд"
   if (dashboardBtn) {
     dashboardBtn.addEventListener('click', () => {
@@ -356,6 +374,7 @@ function updateUI() {
     if (stopBtn) stopBtn.style.display = 'none';
     if (collectedData.length > 0) {
       if (exportBtn) exportBtn.style.display = 'block';
+      if (sendBtn) sendBtn.style.display = 'block';
       if (status) {
         status.textContent = 'Готово';
         status.className = 'status completed';
@@ -364,6 +383,7 @@ function updateUI() {
       if (resultsCount) resultsCount.textContent = `Обработано чатов: ${collectedData.length}`;
     } else {
       if (exportBtn) exportBtn.style.display = 'none';
+      if (sendBtn) sendBtn.style.display = 'none';
       if (status) {
         status.textContent = 'Готов к работе';
         status.className = 'status';

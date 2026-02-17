@@ -25,13 +25,15 @@ let chartsEl;
 let chartTotalEl;
 let chartChangesEl;
 let chartTopChangesEl;
+let recalcBtn;
 
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyBaz898g63TlMmepanMx9JV9Y2CjD9YSzLmwRdxsxixhlk4eoIrN2mK5DcAecS58jZ6g/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxOcS9WzssHktnL3RRMsEHimTt14V7qlDDAP9S64dCJ_grRrg8pc4WX1nd1F9gt9VJ-6w/exec';
 
 function getUIElements() {
   collectBtn = document.getElementById('collectBtn');
   sendBtn = document.getElementById('sendBtn');
   loadBtn = document.getElementById('loadBtn');
+  recalcBtn = document.getElementById('recalcBtn');
   statusEl = document.getElementById('status');
   progressEl = document.getElementById('progress');
   progressFillEl = document.getElementById('progress-fill');
@@ -116,8 +118,14 @@ function hasParticipantByName(participantsList, expectedName) {
 function buildSnapshot(data, timestamp) {
   const groups = {};
   (data || []).forEach(item => {
-    const key = (item.url || item.name || '').trim();
-    if (!key) return;
+    // Используем URL как ключ (если есть), иначе name
+    // Это предотвращает перезапись групп с одинаковым названием
+    const key = item.url ? item.url.trim() : (item.name || '').trim();
+    if (!key) {
+      console.warn('[imct_counter dashboard] Пропущен элемент без URL и названия:', item);
+      return;
+    }
+    
     const participantsList = Array.isArray(item.participantsList) ? item.participantsList : [];
     const hasDigitalVuzAdmin = hasAdminByName(participantsList, 'Цифровой вуз');
     const hasKhlstovAdmin = hasAdminByName(participantsList, 'Константин Хлыстов');
@@ -129,12 +137,37 @@ function buildSnapshot(data, timestamp) {
       else if (p.isAdmin) role = ' (Админ)';
       return `${p.name}${role}`;
     }).filter(Boolean).join('; ');
+    
+    const participants = Number(item.participants) || 0;
+    const adminsCount = Number(item.adminsCount) || 0;
+    const ownersCount = Number(item.ownersCount) || 0;
+    
+    // Проверяем, не перезаписываем ли мы существующую группу
+    if (groups[key]) {
+      console.warn(`[imct_counter dashboard] Дубликат ключа "${key}":`, {
+        existing: groups[key],
+        new: { name: item.name, participants, participantsListStr: participantsListStr.substring(0, 50) + '...' }
+      });
+    }
+    
+    // Проверка: если есть участники, но список пустой - это проблема
+    if (participants > 0 && !participantsListStr && participantsList.length === 0) {
+      console.warn(`[imct_counter dashboard] Группа "${item.name || key}" имеет ${participants} участников, но participantsList пустой!`, {
+        key,
+        name: item.name,
+        url: item.url,
+        participants,
+        participantsListLength: participantsList.length,
+        hasParticipantsList: Array.isArray(item.participantsList)
+      });
+    }
+    
     groups[key] = {
       name: item.name || key,
       url: item.url || '',
-      participants: Number(item.participants) || 0,
-      adminsCount: Number(item.adminsCount) || 0,
-      ownersCount: Number(item.ownersCount) || 0,
+      participants: participants,
+      adminsCount: adminsCount,
+      ownersCount: ownersCount,
       hasDigitalVuzAdmin: hasDigitalVuzAdmin,
       hasKhlstovAdmin: hasKhlstovAdmin,
       hasDvfuStatsUser: hasDvfuStatsUser,
@@ -172,22 +205,54 @@ function buildRowsForSnapshot(snapshot, prevSnapshot) {
   const prev = prevSnapshot ? (prevSnapshot.groups || {}) : {};
   const keys = new Set([...Object.keys(prev), ...Object.keys(current)]);
   const rows = [];
+  const isFirstSnapshot = !prevSnapshot;
   keys.forEach(key => {
     const curr = current[key];
     const prevItem = prev[key];
     const currCount = curr ? curr.participants : 0;
     const prevCount = prevItem ? prevItem.participants : 0;
+    
+    // Правильный расчет дельты:
+    // - Если это первый снимок, дельта = 0
+    // - Если группа появилась впервые (есть в current, но нет в prev), дельта = 0
+    // - Если группа исчезла (есть в prev, но нет в current), дельта = -prevCount
+    // - Если группа есть в обоих, дельта = currCount - prevCount
+    let delta = 0;
+    if (isFirstSnapshot) {
+      delta = 0; // Первый снимок - нет изменений
+    } else if (curr && !prevItem) {
+      delta = 0; // Новая группа - считаем что изменений нет
+    } else if (!curr && prevItem) {
+      delta = -prevCount; // Группа исчезла
+    } else {
+      delta = currCount - prevCount; // Обычное изменение
+    }
+    
+    const participantsListStr = curr ? (curr.participantsListStr || '') : '';
+    
+    // Проверка: если есть участники, но список пустой - это проблема
+    if (curr && currCount > 0 && !participantsListStr) {
+      console.warn(`[imct_counter dashboard] Группа "${curr.name || key}" имеет ${currCount} участников, но participantsListStr пустой!`, {
+        key,
+        participants: currCount,
+        hasParticipantsList: !!curr.participantsListStr,
+        participantsListStrLength: participantsListStr.length
+      });
+    }
+    
     rows.push({
       name: (curr && curr.name) || (prevItem && prevItem.name) || key,
       url: (curr && curr.url) || (prevItem && prevItem.url) || '',
       participants: currCount,
       adminsCount: curr ? curr.adminsCount : 0,
       ownersCount: curr ? curr.ownersCount : 0,
-      delta: currCount - prevCount,
+      delta: delta,
       hasDigitalVuzAdmin: curr ? curr.hasDigitalVuzAdmin : false,
       hasKhlstovAdmin: curr ? curr.hasKhlstovAdmin : false,
       hasDvfuStatsUser: curr ? curr.hasDvfuStatsUser : false,
-      participantsListStr: curr ? curr.participantsListStr : ''
+      participantsListStr: participantsListStr,
+      // Также отправляем как participants_list для совместимости с Google Apps Script
+      participants_list: participantsListStr
     });
   });
   return rows;
@@ -205,21 +270,59 @@ async function sendSnapshotToSheets(snapshot, prevSnapshot, forceSend = false) {
       }
 
       const userId = await getOrCreateUserId();
+      const rows = buildRowsForSnapshot(snapshot, prevSnapshot);
+      
+      // Подробное логирование для отладки
+      console.log('[imct_counter dashboard] ========== ОТПРАВКА В GOOGLE SHEETS ==========');
+      console.log('[imct_counter dashboard] Timestamp снимка:', snapshot.timestamp, 'ISO:', new Date(snapshot.timestamp).toISOString());
+      console.log('[imct_counter dashboard] Количество строк:', rows.length);
+      console.log('[imct_counter dashboard] UserId:', userId);
+      
+      if (rows.length > 0) {
+        // Проверяем первые 3 строки
+        const sampleRows = rows.slice(0, 3);
+        sampleRows.forEach((row, idx) => {
+          console.log(`[imct_counter dashboard] Строка ${idx + 1}:`, {
+            name: row.name,
+            url: row.url,
+            participants: row.participants,
+            participantsListStr: row.participantsListStr ? `[${row.participantsListStr.length} символов] ${row.participantsListStr.substring(0, 100)}...` : 'ПУСТО!',
+            participants_list: row.participants_list ? `[${row.participants_list.length} символов] ${row.participants_list.substring(0, 100)}...` : 'ПУСТО!',
+            delta: row.delta
+          });
+        });
+        
+        // Проверяем, есть ли хотя бы одна строка с participants_list
+        const rowsWithParticipants = rows.filter(r => r.participants_list && r.participants_list.length > 0);
+        console.log('[imct_counter dashboard] Строк с participants_list:', rowsWithParticipants.length, 'из', rows.length);
+        
+        // Выводим в статус
+        if (statusEl) {
+          statusEl.textContent = `Отправка: ${rowsWithParticipants.length}/${rows.length} строк с участниками`;
+        }
+      }
+      
       const payload = {
         ts: new Date(snapshot.timestamp).toISOString(),
         userId: userId,
-        rows: buildRowsForSnapshot(snapshot, prevSnapshot)
+        rows: rows
       };
+      
+      console.log('[imct_counter dashboard] Payload размер:', JSON.stringify(payload).length, 'символов');
+      console.log('[imct_counter dashboard] Payload preview (первые 500 символов):', JSON.stringify(payload).substring(0, 500));
 
       try {
+        console.log('[imct_counter dashboard] Отправка запроса на:', APPS_SCRIPT_URL);
         const response = await fetch(APPS_SCRIPT_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(payload)
         });
-        console.log('[imct_counter dashboard] Отправка в Google Sheets, режим no-cors');
+        console.log('[imct_counter dashboard] Ответ получен (no-cors режим, статус недоступен)');
         chrome.storage.local.set({ lastSentSnapshotTs: snapshot.timestamp });
+        console.log('[imct_counter dashboard] lastSentSnapshotTs обновлен:', snapshot.timestamp);
+        console.log('[imct_counter dashboard] ========== ОТПРАВКА ЗАВЕРШЕНА ==========');
         resolve({ ok: true, status: response.status });
       } catch (error) {
         console.error('[imct_counter dashboard] Ошибка отправки в Google Sheets:', error);
@@ -265,20 +368,61 @@ function buildSnapshotsFromRows(rows) {
 }
 
 async function loadSnapshotsFromSheets() {
+  console.log('[imct_counter dashboard] ========== ЗАГРУЗКА ИЗ GOOGLE SHEETS ==========');
   const userId = await getOrCreateUserId();
+  console.log('[imct_counter dashboard] UserId:', userId);
   const url = `${APPS_SCRIPT_URL}?action=get&userId=${encodeURIComponent(userId)}&limit=2000`;
-  const response = await fetch(url, { method: 'GET' });
-  const data = await response.json();
-  if (!data || !data.ok) {
-    throw new Error('Не удалось получить данные из Google Sheets');
+  console.log('[imct_counter dashboard] URL запроса:', url);
+  
+  try {
+    const response = await fetch(url, { method: 'GET' });
+    console.log('[imct_counter dashboard] Ответ получен, статус:', response.status);
+    const data = await response.json();
+    console.log('[imct_counter dashboard] Данные получены:', {
+      ok: data?.ok,
+      rowsCount: Array.isArray(data?.rows) ? data.rows.length : 0
+    });
+    
+    if (!data || !data.ok) {
+      throw new Error('Не удалось получить данные из Google Sheets');
+    }
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    
+    // Проверяем первые несколько строк
+    if (rows.length > 0) {
+      const sampleRows = rows.slice(0, 3);
+      sampleRows.forEach((row, idx) => {
+        console.log(`[imct_counter dashboard] Загруженная строка ${idx + 1}:`, {
+          ts: row.ts,
+          groupName: row.groupName,
+          participants: row.participants,
+          participants_list: row.participants_list ? `[${row.participants_list.length} символов] ${row.participants_list.substring(0, 100)}...` : 'ПУСТО!',
+          delta: row.delta
+        });
+      });
+    }
+    
+    const loaded = buildSnapshotsFromRows(rows);
+    console.log('[imct_counter dashboard] Построено снимков:', loaded.length);
+    if (loaded.length > 0) {
+      const lastSnapshot = loaded[loaded.length - 1];
+      console.log('[imct_counter dashboard] Последний снимок:', {
+        timestamp: lastSnapshot.timestamp,
+        iso: new Date(lastSnapshot.timestamp).toISOString(),
+        groupsCount: Object.keys(lastSnapshot.groups || {}).length
+      });
+    }
+    
+    snapshots = loaded;
+    chrome.storage.local.set({ snapshots: snapshots }, () => {
+      renderSnapshots();
+    });
+    console.log('[imct_counter dashboard] ========== ЗАГРУЗКА ЗАВЕРШЕНА ==========');
+    return loaded.length;
+  } catch (error) {
+    console.error('[imct_counter dashboard] Ошибка загрузки из Google Sheets:', error);
+    throw error;
   }
-  const rows = Array.isArray(data.rows) ? data.rows : [];
-  const loaded = buildSnapshotsFromRows(rows);
-  snapshots = loaded;
-  chrome.storage.local.set({ snapshots: snapshots }, () => {
-    renderSnapshots();
-  });
-  return loaded.length;
 }
 
 function formatDate(ts) {
@@ -319,13 +463,30 @@ function renderSnapshots() {
   const prevGroups = (prevSnapshot && prevSnapshot.groups) ? prevSnapshot.groups : {};
   const keys = new Set([...Object.keys(prevGroups), ...Object.keys(lastGroups)]);
   const rows = [];
+  const isFirstSnapshot = !prevSnapshot;
 
   keys.forEach(key => {
     const current = lastGroups[key];
     const previous = prevGroups[key];
     const currentParticipants = current ? current.participants : 0;
     const previousParticipants = previous ? previous.participants : 0;
-    const delta = currentParticipants - previousParticipants;
+    
+    // Правильный расчет дельты:
+    // - Если это первый снимок, дельта = 0
+    // - Если группа появилась впервые (есть в current, но нет в prev), дельта = 0
+    // - Если группа исчезла (есть в prev, но нет в current), дельта = -previousParticipants
+    // - Если группа есть в обоих, дельта = currentParticipants - previousParticipants
+    let delta = 0;
+    if (isFirstSnapshot) {
+      delta = 0; // Первый снимок - нет изменений
+    } else if (current && !previous) {
+      delta = 0; // Новая группа - считаем что изменений нет
+    } else if (!current && previous) {
+      delta = -previousParticipants; // Группа исчезла
+    } else {
+      delta = currentParticipants - previousParticipants; // Обычное изменение
+    }
+    
     rows.push({
       key: key,
       name: (current && current.name) || (previous && previous.name) || key,
@@ -636,9 +797,25 @@ function loadSnapshots() {
 }
 
 function saveSnapshotFromData(data) {
-  const snapshot = buildSnapshot(data);
-  chrome.storage.local.get(['snapshots'], result => {
+  // Получаем timestamp из lastCollectedAt, если есть, иначе используем текущее время
+  chrome.storage.local.get(['snapshots', 'lastCollectedAt'], result => {
+    // Используем lastCollectedAt, но если он уже использован, добавляем небольшую задержку
+    let timestamp = result.lastCollectedAt || Date.now();
     const stored = result.snapshots || [];
+    
+    // Проверяем, не совпадает ли timestamp с последним снимком
+    if (stored.length > 0) {
+      const lastSnapshot = stored[stored.length - 1];
+      if (lastSnapshot.timestamp >= timestamp) {
+        // Если timestamp совпадает или меньше, добавляем 1 мс для уникальности
+        timestamp = lastSnapshot.timestamp + 1;
+      }
+    }
+    
+    console.log('[imct_counter dashboard] saveSnapshotFromData: timestamp =', timestamp, 'ISO:', new Date(timestamp).toISOString());
+    console.log('[imct_counter dashboard] saveSnapshotFromData: количество групп =', data ? data.length : 0);
+    
+    const snapshot = buildSnapshot(data, timestamp);
     const prevSnapshot = stored.length > 0 ? stored[stored.length - 1] : null;
     stored.push(snapshot);
     persistSnapshots(stored);
@@ -758,6 +935,23 @@ function setupEventListeners() {
         updateStatus(`Загружено снимков: ${count}`, 'completed');
       } catch (error) {
         updateStatus(error.message || 'Ошибка загрузки из Google Sheets', 'error');
+      }
+    });
+  }
+  if (recalcBtn) {
+    recalcBtn.addEventListener('click', async () => {
+      if (!snapshots.length) {
+        updateStatus('Нет снимков для пересчета', 'error');
+        return;
+      }
+      updateStatus('Пересчет дельт...', 'running');
+      try {
+        // Дельты уже пересчитываются правильно в renderSnapshots
+        // Просто перерисовываем дашборд
+        renderSnapshots();
+        updateStatus('Дельты пересчитаны', 'completed');
+      } catch (error) {
+        updateStatus('Ошибка пересчета: ' + error.message, 'error');
       }
     });
   }

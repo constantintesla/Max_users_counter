@@ -8,269 +8,16 @@ let processedUrls = new Set(); // Множество уже обработанн
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyBaz898g63TlMmepanMx9JV9Y2CjD9YSzLmwRdxsxixhlk4eoIrN2mK5DcAecS58jZ6g/exec';
 
-function injectFloatingButton() {
-  if (document.getElementById('imct-floating-button')) return;
-
-  const btn = document.createElement('button');
-  btn.id = 'imct-floating-button';
-  btn.type = 'button';
-  btn.title = 'Открыть дашборд imct_counter';
-  btn.style.position = 'fixed';
-  btn.style.left = '12px';
-  btn.style.top = '50%';
-  btn.style.transform = 'translateY(-50%)';
-  btn.style.zIndex = '2147483647';
-  btn.style.border = 'none';
-  btn.style.background = 'transparent';
-  btn.style.padding = '0';
-  btn.style.cursor = 'pointer';
-
-  const img = document.createElement('img');
-  img.src = chrome.runtime.getURL('icons/sad-face-48.png');
-  img.alt = 'imct_counter';
-  img.style.width = '40px';
-  img.style.height = '40px';
-  img.style.borderRadius = '8px';
-  img.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
-  img.style.background = '#fff';
-  img.addEventListener('error', () => {
-    img.alt = 'imct';
-    img.style.display = 'none';
-    btn.textContent = 'imct';
-    btn.style.background = '#fff';
-    btn.style.borderRadius = '8px';
-    btn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
-    btn.style.padding = '6px 8px';
-    btn.style.fontSize = '12px';
-  });
-
-  btn.appendChild(img);
-  btn.addEventListener('click', () => {
-    togglePopupOverlay();
-  });
-
-  document.body.appendChild(btn);
-}
-
-let overlayElements = null;
-
-function createOverlay() {
-  const overlay = document.createElement('div');
-  overlay.id = 'imct-popup-overlay';
-  overlay.style.position = 'fixed';
-  overlay.style.left = '60px';
-  overlay.style.top = '50%';
-  overlay.style.transform = 'translateY(-50%)';
-  overlay.style.width = '360px';
-  overlay.style.background = '#fff';
-  overlay.style.border = '1px solid #e0e0e0';
-  overlay.style.borderRadius = '10px';
-  overlay.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)';
-  overlay.style.zIndex = '2147483647';
-  overlay.style.fontFamily = 'Segoe UI, Roboto, Arial, sans-serif';
-  overlay.style.fontSize = '13px';
-  overlay.style.color = '#333';
-  overlay.style.padding = '12px';
-
-  const header = document.createElement('div');
-  header.style.display = 'flex';
-  header.style.justifyContent = 'space-between';
-  header.style.alignItems = 'center';
-  header.style.marginBottom = '8px';
-
-  const title = document.createElement('div');
-  title.textContent = 'imct_counter';
-  title.style.fontWeight = '600';
-
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = '×';
-  closeBtn.style.border = 'none';
-  closeBtn.style.background = 'transparent';
-  closeBtn.style.fontSize = '20px';
-  closeBtn.style.cursor = 'pointer';
-  closeBtn.addEventListener('click', () => {
-    overlay.style.display = 'none';
-  });
-
-  header.appendChild(title);
-  header.appendChild(closeBtn);
-
-  const status = document.createElement('div');
-  status.id = 'imct-status';
-  status.textContent = 'Готов к работе';
-  status.style.padding = '8px';
-  status.style.borderRadius = '6px';
-  status.style.background = '#e3f2fd';
-  status.style.color = '#1976d2';
-  status.style.marginBottom = '8px';
-  status.style.textAlign = 'center';
-
-  const progressWrap = document.createElement('div');
-  progressWrap.id = 'imct-progress';
-  progressWrap.style.display = 'none';
-  progressWrap.style.marginBottom = '8px';
-
-  const progressBar = document.createElement('div');
-  progressBar.style.height = '14px';
-  progressBar.style.background = '#e0e0e0';
-  progressBar.style.borderRadius = '999px';
-  progressBar.style.overflow = 'hidden';
-
-  const progressFill = document.createElement('div');
-  progressFill.id = 'imct-progress-fill';
-  progressFill.style.height = '100%';
-  progressFill.style.width = '0%';
-  progressFill.style.background = 'linear-gradient(90deg, #4caf50, #8bc34a)';
-  progressBar.appendChild(progressFill);
-
-  const progressText = document.createElement('div');
-  progressText.id = 'imct-progress-text';
-  progressText.style.textAlign = 'center';
-  progressText.style.marginTop = '4px';
-  progressText.style.fontSize = '12px';
-  progressText.textContent = '0 / 0';
-
-  progressWrap.appendChild(progressBar);
-  progressWrap.appendChild(progressText);
-
-  const buttons = document.createElement('div');
-  buttons.style.display = 'flex';
-  buttons.style.flexDirection = 'column';
-  buttons.style.gap = '6px';
-  buttons.style.marginBottom = '8px';
-
-  const makeBtn = (text, bg) => {
-    const btn = document.createElement('button');
-    btn.textContent = text;
-    btn.style.padding = '8px 10px';
-    btn.style.border = 'none';
-    btn.style.borderRadius = '6px';
-    btn.style.background = bg;
-    btn.style.color = '#fff';
-    btn.style.cursor = 'pointer';
-    return btn;
-  };
-
-  const startBtn = makeBtn('Начать сбор данных', '#1976d2');
-  const testBtn = makeBtn('Тест (3 группы)', '#ff9800');
-  const stopBtn = makeBtn('Остановить', '#f44336');
-  const exportBtn = makeBtn('Экспорт в CSV', '#4caf50');
-  const sendBtn = makeBtn('Отправить в Google', '#607d8b');
-  const loadBtn = makeBtn('Загрузить из Google', '#607d8b');
-  const dashboardBtn = makeBtn('Открыть дашборд', '#607d8b');
-
-  buttons.appendChild(startBtn);
-  buttons.appendChild(testBtn);
-  buttons.appendChild(stopBtn);
-  buttons.appendChild(exportBtn);
-  buttons.appendChild(sendBtn);
-  buttons.appendChild(loadBtn);
-  buttons.appendChild(dashboardBtn);
-
-  const results = document.createElement('div');
-  results.id = 'imct-results';
-  results.style.display = 'none';
-  results.style.border = '1px solid #e0e0e0';
-  results.style.borderRadius = '6px';
-  results.style.padding = '8px';
-  results.style.background = '#fafafa';
-  const resultsTitle = document.createElement('div');
-  resultsTitle.textContent = 'Результаты:';
-  resultsTitle.style.fontWeight = '600';
-  resultsTitle.style.marginBottom = '4px';
-  const resultsCount = document.createElement('div');
-  resultsCount.id = 'imct-results-count';
-  resultsCount.textContent = 'Обработано чатов: 0';
-  results.appendChild(resultsTitle);
-  results.appendChild(resultsCount);
-
-  overlay.appendChild(header);
-  overlay.appendChild(status);
-  overlay.appendChild(progressWrap);
-  overlay.appendChild(buttons);
-  overlay.appendChild(results);
-  document.body.appendChild(overlay);
-
-  overlayElements = {
-    overlay,
-    status,
-    progressWrap,
-    progressFill,
-    progressText,
-    results,
-    resultsCount,
-    startBtn,
-    testBtn,
-    stopBtn,
-    exportBtn,
-    sendBtn,
-    loadBtn,
-    dashboardBtn
-  };
-
-  startBtn.addEventListener('click', () => collectChatData());
-  testBtn.addEventListener('click', () => collectChatData(3));
-  stopBtn.addEventListener('click', () => {
-    isRunning = false;
-    chrome.storage.local.set({ isRunning: false });
-    updateOverlayStatus('Остановлено', 'idle');
-  });
-  exportBtn.addEventListener('click', () => exportToCSV(collectedData));
-  sendBtn.addEventListener('click', () => {
-    sendLastSnapshotToGoogle();
-  });
-  loadBtn.addEventListener('click', () => {
-    loadSnapshotsFromGoogle();
-  });
-  dashboardBtn.addEventListener('click', () => {
-    toggleDashboardOverlay();
-  });
-}
-
-function togglePopupOverlay() {
-  if (!overlayElements) {
-    createOverlay();
-  }
-  const overlay = overlayElements.overlay;
-  overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
-}
-
-function updateOverlayStatus(text, type) {
-  if (!overlayElements) return;
-  const status = overlayElements.status;
-  status.textContent = text;
-  if (type === 'running') {
-    status.style.background = '#fff3e0';
-    status.style.color = '#f57c00';
-  } else if (type === 'completed') {
-    status.style.background = '#e8f5e9';
-    status.style.color = '#388e3c';
-  } else if (type === 'error') {
-    status.style.background = '#ffebee';
-    status.style.color = '#d32f2f';
-  } else {
-    status.style.background = '#e3f2fd';
-    status.style.color = '#1976d2';
-  }
-}
-
-function updateOverlayProgress(current, total) {
-  if (!overlayElements) return;
-  overlayElements.progressWrap.style.display = total > 0 ? 'block' : 'none';
-  overlayElements.progressText.textContent = `${current} / ${total}`;
-  const percentage = total > 0 ? (current / total) * 100 : 0;
-  overlayElements.progressFill.style.width = `${percentage}%`;
-}
+// Встроенный popup удален - используем стандартный popup расширения
 
 function updateOverlayResults() {
-  if (!overlayElements) return;
-  overlayElements.results.style.display = collectedData.length > 0 ? 'block' : 'none';
-  overlayElements.resultsCount.textContent = `Обработано чатов: ${collectedData.length}`;
+  // Функция оставлена для совместимости, но не используется
+  console.log('[imct_counter] updateOverlayResults вызвана, но overlay удален');
 }
 
 function exportToCSV(data) {
   if (!data || data.length === 0) {
-    updateOverlayStatus('Нет данных для экспорта', 'error');
+    console.log('Нет данных для экспорта', 'error');
     return;
   }
 
@@ -316,7 +63,7 @@ function exportToCSV(data) {
   link.download = `max_chats_${new Date().toISOString().split('T')[0]}.csv`;
   link.click();
   URL.revokeObjectURL(url);
-  updateOverlayStatus('CSV файл скачан', 'completed');
+  console.log('CSV файл скачан', 'completed');
 }
 
 function generateUserId() {
@@ -398,7 +145,7 @@ function buildRowsForSnapshot(snapshot, prevSnapshot) {
 
 async function sendSnapshotToGoogle(snapshot, prevSnapshot) {
   if (!APPS_SCRIPT_URL) {
-    updateOverlayStatus('Нет URL Apps Script', 'error');
+    console.log('Нет URL Apps Script', 'error');
     return;
   }
   const userId = await getOrCreateUserId();
@@ -414,28 +161,13 @@ async function sendSnapshotToGoogle(snapshot, prevSnapshot) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
-    updateOverlayStatus('Отправлено в Google Sheets', 'completed');
+    console.log('Отправлено в Google Sheets', 'completed');
   } catch (error) {
-    updateOverlayStatus('Ошибка отправки в Google Sheets', 'error');
+    console.log('Ошибка отправки в Google Sheets', 'error');
   }
 }
 
-async function sendLastSnapshotToGoogle() {
-  updateOverlayStatus('Отправка в Google Sheets...', 'running');
-  chrome.storage.local.get(['snapshots', 'collectedData', 'lastCollectedAt'], async result => {
-    const snapshots = result.snapshots || [];
-    let lastSnapshot = snapshots[snapshots.length - 1] || null;
-    let prevSnapshot = snapshots.length > 1 ? snapshots[snapshots.length - 2] : null;
-    if (!lastSnapshot && result.collectedData && result.collectedData.length > 0) {
-      lastSnapshot = buildSnapshotFromCollectedData(result.collectedData, result.lastCollectedAt || Date.now());
-    }
-    if (!lastSnapshot) {
-      updateOverlayStatus('Нет снимков для отправки', 'error');
-      return;
-    }
-    await sendSnapshotToGoogle(lastSnapshot, prevSnapshot);
-  });
-}
+// Функция удалена - используйте popup расширения для отправки в Google Sheets
 
 function parseBool(value) {
   if (typeof value === 'boolean') return value;
@@ -472,44 +204,13 @@ function buildSnapshotsFromRows(rows) {
   return Array.from(byTimestamp.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
 
-async function loadSnapshotsFromGoogle() {
-  updateOverlayStatus('Загрузка из Google Sheets...', 'running');
-  try {
-    const userId = await getOrCreateUserId();
-    const url = `${APPS_SCRIPT_URL}?action=get&userId=${encodeURIComponent(userId)}&limit=2000`;
-    const response = await fetch(url, { method: 'GET' });
-    const data = await response.json();
-    if (!data || !data.ok) {
-      updateOverlayStatus('Ошибка загрузки из Google Sheets', 'error');
-      return;
-    }
-    const rows = Array.isArray(data.rows) ? data.rows : [];
-    const snapshots = buildSnapshotsFromRows(rows);
-    chrome.storage.local.set({ snapshots: snapshots }, () => {
-      updateOverlayStatus(`Загружено снимков: ${snapshots.length}`, 'completed');
-      if (dashboardOverlayElements && dashboardOverlayElements.overlay.style.display === 'block') {
-        renderDashboardFromSnapshots(snapshots);
-      }
-    });
-  } catch (error) {
-    updateOverlayStatus('Ошибка загрузки из Google Sheets', 'error');
-  }
-}
+// Функции удалены - используйте popup расширения для работы с Google Sheets и дашбордом
 
-let dashboardOverlayElements = null;
+// Удалены функции createDashboardOverlay, loadSnapshotsAndRenderDashboard, renderDashboardFromSnapshots
+// Используйте стандартный popup расширения и дашборд через chrome.tabs.create
 
-function toggleDashboardOverlay() {
-  if (!dashboardOverlayElements) {
-    createDashboardOverlay();
-  }
-  const overlay = dashboardOverlayElements.overlay;
-  overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
-  if (overlay.style.display === 'block') {
-    loadSnapshotsAndRenderDashboard();
-  }
-}
-
-function createDashboardOverlay() {
+// Удалены функции для работы с графиками в overlay
+function drawLineChart(canvas, series) {
   const overlay = document.createElement('div');
   overlay.id = 'imct-dashboard-overlay';
   overlay.style.position = 'fixed';
@@ -967,11 +668,7 @@ function drawBarChart(canvas, rows) {
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', injectFloatingButton);
-} else {
-  injectFloatingButton();
-}
+// Встроенный popup удален - используйте стандартный popup расширения
 
 // Функция ожидания
 function wait(ms) {
@@ -1353,7 +1050,7 @@ async function collectChatsByScrolling(container) {
   };
   
   container.scrollTop = 0;
-  await wait(500);
+  await wait(300);
   addChats(extractChatsFromContainer(container));
   
   const step = Math.max(200, Math.floor(container.clientHeight * 0.8));
@@ -1363,7 +1060,7 @@ async function collectChatsByScrolling(container) {
   for (let i = 0; i < 120; i++) {
     const nextTop = Math.min(container.scrollTop + step, container.scrollHeight);
     container.scrollTop = nextTop;
-    await wait(500);
+    await wait(300);
     addChats(extractChatsFromContainer(container));
     
     if (collected.size === lastSize) {
@@ -1405,7 +1102,7 @@ async function scrollToLoadAllChats(container) {
       behavior: 'auto'
     });
     
-    await wait(500);
+    await wait(300);
     
     // Считаем чаты - используем те же селекторы, что и в findAllChats
     const chats = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb, .svelte-q2jdqb');
@@ -1429,7 +1126,7 @@ async function scrollToLoadAllChats(container) {
         } else {
           // Пробуем еще раз с небольшим скроллом
           container.scrollTop += 100;
-          await wait(500);
+          await wait(300);
           const newChats = container.querySelectorAll('[role="presentation"].wrapper.svelte-q2jdqb, .wrapper.svelte-q2jdqb, button.cell.svelte-q2jdqb, .svelte-q2jdqb');
           if (newChats.length === currentChatCount) {
             break;
@@ -1438,9 +1135,9 @@ async function scrollToLoadAllChats(container) {
           noChangeCount = 0;
         }
       } else {
-        await wait(300);
+        await wait(200);
         container.scrollTop = container.scrollHeight;
-        await wait(500);
+        await wait(300);
       }
     } else {
       noChangeCount = 0; // Сбрасываем счетчик при изменении
@@ -1493,8 +1190,8 @@ function findAllChats() {
 
 // Функция извлечения данных из чата
 async function extractChatData() {
-  // Ждем загрузки информации о чате (уменьшено для ускорения)
-  await wait(500);
+  // Ждем загрузки информации о чате (оптимизировано)
+  await wait(300);
   
   // Проверяем, что мы на странице группового чата (URL начинается с /-число)
   // Формат: https://web.max.ru/-71128136750354
@@ -1533,10 +1230,44 @@ async function extractChatData() {
     if (match) {
       participants = parseInt(match[2], 10); // Берем второе число (общее количество)
     } else {
-      // Пробуем найти просто число
-      const numberMatch = text.match(/\d+/);
-      if (numberMatch) {
-        participants = parseInt(numberMatch[0], 10);
+      // Пробуем найти число в контексте участников
+      // Ищем паттерны типа "участник: 25", "25 участников", "всего 25" и т.д.
+      const contextPatterns = [
+        /участник[а-я]*:\s*(\d+)/i,
+        /(\d+)\s*участник[а-я]*/i,
+        /всего\s*(\d+)/i,
+        /(\d+)\s*человек/i,
+        /(\d+)\s*член/i
+      ];
+      
+      let foundNumber = null;
+      for (const pattern of contextPatterns) {
+        const contextMatch = text.match(pattern);
+        if (contextMatch) {
+          foundNumber = parseInt(contextMatch[1], 10);
+          break;
+        }
+      }
+      
+      // Если не нашли в контексте, пробуем найти просто число, но с проверками
+      if (!foundNumber) {
+        const numberMatch = text.match(/\d+/);
+        if (numberMatch) {
+          const candidate = parseInt(numberMatch[0], 10);
+          // Проверяем, что число разумное (не слишком большое)
+          // Обычно в группе не больше 10000 участников
+          if (candidate > 0 && candidate <= 10000) {
+            // Дополнительная проверка: если текст содержит слова связанные с участниками
+            const hasParticipantContext = /участник|член|человек|в сети|онлайн/i.test(text);
+            if (hasParticipantContext) {
+              foundNumber = candidate;
+            }
+          }
+        }
+      }
+      
+      if (foundNumber) {
+        participants = foundNumber;
       }
     }
   }
@@ -1583,6 +1314,19 @@ async function extractChatData() {
     name = titleElement ? titleElement.textContent.trim() : '';
   }
   
+  // Дополнительная проверка: если количество участников совпадает с числом из названия группы
+  // и это число подозрительно большое (> 1000), сбрасываем его
+  if (participants > 1000 && name) {
+    const nameNumberMatch = name.match(/\d{4,}/); // Ищем числа из 4+ цифр в названии
+    if (nameNumberMatch) {
+      const nameNumber = parseInt(nameNumberMatch[0], 10);
+      if (participants === nameNumber) {
+        console.warn(`[imct_counter] Подозрительное совпадение: количество участников (${participants}) совпадает с числом из названия группы "${name}" (${nameNumber}). Сбрасываем.`);
+        participants = 0; // Сбрасываем, так как это скорее всего число из названия
+      }
+    }
+  }
+  
   // Получаем URL текущей страницы (должен быть в формате /-число)
   const url = window.location.href;
   
@@ -1593,8 +1337,8 @@ async function extractChatData() {
   let hasDigitalVuzBot = false;
   
   try {
-    // Увеличиваем время ожидания загрузки страницы чата (уменьшено для ускорения)
-    await wait(600);
+    // Ожидание загрузки страницы чата (оптимизировано)
+    await wait(400);
     
     // Проверяем, не находимся ли мы уже на странице со списком участников
     // Ищем контейнер content svelte-13fay8c или другие признаки страницы участников
@@ -1743,7 +1487,7 @@ async function extractChatData() {
       
       // Прокручиваем к кнопке, чтобы она была видна
       buttonElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-      await wait(200);
+      await wait(100);
       
       // Пробуем кликнуть разными способами
       let clickSuccess = false;
@@ -1753,7 +1497,7 @@ async function extractChatData() {
           console.error('[imct_counter] Пробуем focus + обычный клик');
           if (buttonElement.focus) {
             buttonElement.focus();
-            await wait(100);
+            await wait(50);
           }
           buttonElement.click();
           clickSuccess = true;
@@ -1785,12 +1529,12 @@ async function extractChatData() {
         
         // Ждем и проверяем, что список участников открылся (только если мы не уже на странице участников)
         if (!hasParticipantsPage) {
-          // Увеличиваем время ожидания и количество проверок (уменьшено для ускорения)
-          await wait(200);
+          // Ожидание после клика (оптимизировано)
+          await wait(150);
           
-          // Проверяем, открылся ли список участников
+          // Проверяем, открылся ли список участников (уменьшено количество проверок)
           let participantsOpened = false;
-          for (let checkAttempt = 0; checkAttempt < 4; checkAttempt++) {
+          for (let checkAttempt = 0; checkAttempt < 3; checkAttempt++) {
             // Проверяем наличие модального окна или диалога
             const dialog = document.querySelector('[role="dialog"], .modal, [class*="modal"], [class*="dialog"]');
             const sidebar = document.querySelector('[class*="sidebar"], [class*="panel"], [class*="drawer"], [class*="side"]');
@@ -1822,7 +1566,7 @@ async function extractChatData() {
               break;
             }
             
-            await wait(200);
+            await wait(150);
           }
         }
     } else if (!hasParticipantsPage && !buttonElement) {
@@ -1832,10 +1576,10 @@ async function extractChatData() {
       if (headerElement) {
         console.error('[imct_counter] Пробуем кликнуть по header');
         headerElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-        await wait(300);
+        await wait(200);
         try {
           headerElement.click();
-          await wait(600);
+          await wait(400);
         } catch (e) {
           const clickEvent = new MouseEvent('click', {
             bubbles: true,
@@ -1864,8 +1608,8 @@ async function extractChatData() {
       
       console.error('[imct_counter] Начинаем поиск контейнера со списком участников');
       
-      // Сначала ждем немного, чтобы модальное окно успело открыться
-      await wait(600);
+      // Сначала ждем немного, чтобы модальное окно успело открыться (оптимизировано)
+      await wait(400);
     
     while (!participantsContainer && attempts < maxAttempts) {
         // Способ 0: Ищем по классу content svelte-13fay8c (специфичный для страницы участников)
@@ -1997,7 +1741,7 @@ async function extractChatData() {
         if (!participantsContainer) {
           attempts++;
           console.error(`[imct_counter] Контейнер не найден, попытка ${attempts}/${maxAttempts}`);
-          await wait(250); // Ждем и пробуем еще раз
+          await wait(200); // Оптимизировано
         } else {
           console.error('[imct_counter] Контейнер со списком участников найден!');
           break;
@@ -2017,41 +1761,55 @@ async function extractChatData() {
       let scrollAttempts = 0;
       const maxScrollAttempts = 20; // Уменьшено количество попыток
       
+      // Оптимизированная функция поиска участников - объединяет все селекторы в один запрос
       const getParticipantElements = () => {
-        let elements = participantsContainer.querySelectorAll('[class*="user"], [class*="member"], [class*="participant"]');
-        if (elements.length === 0) {
-          elements = participantsContainer.querySelectorAll('[role="listitem"], [class*="item"], [class*="row"]');
-        }
+        // Пробуем все селекторы сразу для максимальной эффективности
+        const combinedSelector = [
+          '[class*="user"]',
+          '[class*="member"]',
+          '[class*="participant"]',
+          '[role="listitem"]',
+          '[class*="item"]',
+          '[class*="row"]'
+        ].join(', ');
+        
+        let elements = participantsContainer.querySelectorAll(combinedSelector);
+        
+        // Если не нашли через основные селекторы, ищем через аватары
         if (elements.length === 0) {
           const elementsWithAvatars = participantsContainer.querySelectorAll('[class*="avatar"], img[class*="avatar"]');
-          elements = Array.from(elementsWithAvatars).map(avatar => {
-            return avatar.closest('div, li, span, article, section') || avatar.parentElement;
-          }).filter(el => el && el !== participantsContainer);
+          const uniqueParents = new Set();
+          elementsWithAvatars.forEach(avatar => {
+            const parent = avatar.closest('div, li, span, article, section') || avatar.parentElement;
+            if (parent && parent !== participantsContainer) {
+              uniqueParents.add(parent);
+            }
+          });
+          elements = Array.from(uniqueParents);
         }
+        
         return elements;
       };
       
+      let finalParticipantElements = null;
+      
       while (scrollAttempts < maxScrollAttempts) {
-        // Ищем элементы участников (через единый набор селекторов)
+        // Ищем элементы участников
         const participantElements = getParticipantElements();
         
         if (participantElements.length === previousCount && previousCount > 0) {
-          // Количество не изменилось, возможно все загружено
-          console.error(`[imct_counter] Количество участников не изменилось: ${previousCount}, завершаем скролл`);
+          // Количество не изменилось, сохраняем результат и завершаем скролл
+          finalParticipantElements = participantElements;
           break;
         }
         
         previousCount = participantElements.length;
-        console.error(`[imct_counter] Найдено участников: ${previousCount}, попытка скролла: ${scrollAttempts + 1}`);
+        finalParticipantElements = participantElements; // Сохраняем текущий результат
         
         // Пробуем разные способы скролла
         try {
-          // Способ 1: Прямой скролл контейнера
           const scrollHeight = participantsContainer.scrollHeight;
           const clientHeight = participantsContainer.clientHeight;
-          const currentScrollTop = participantsContainer.scrollTop;
-          
-          console.error(`[imct_counter] Скролл контейнера: scrollHeight=${scrollHeight}, clientHeight=${clientHeight}, scrollTop=${currentScrollTop}`);
           
           if (scrollHeight > clientHeight) {
             // Контейнер можно скроллить
@@ -2071,50 +1829,48 @@ async function extractChatData() {
             }
           }
         } catch (e) {
-          console.error('[imct_counter] Ошибка при скролле контейнера:', e);
           // Пробуем альтернативный способ
           try {
             window.scrollTo(0, document.body.scrollHeight);
-            // Пробуем скроллить родительский элемент
             const parent = participantsContainer.parentElement;
             if (parent) {
               parent.scrollTop = parent.scrollHeight;
             }
           } catch (e2) {
-            console.error('[imct_counter] Ошибка при альтернативном скролле:', e2);
+            // Игнорируем ошибки скролла
           }
         }
         
-        await wait(400); // Уменьшено время ожидания для загрузки
+        await wait(200); // Оптимизировано время ожидания
         
         scrollAttempts++;
       }
       
-      console.error(`[imct_counter] Скролл завершен. Всего найдено участников: ${previousCount}`);
+      // Используем сохраненный результат из цикла скролла
+      let participantElements = finalParticipantElements || getParticipantElements();
       
-      // Собираем информацию об участниках
-      console.error('[imct_counter] Начинаем поиск элементов участников в контейнере');
-      
-      let participantElements = getParticipantElements();
-      console.error(`[imct_counter] Найдено элементов участников: ${participantElements.length}`);
-      
-      // Если все еще не нашли, ищем по структуре - элементы с аватарами или именами
+      // Если все еще не нашли, ищем по структуре (только если действительно пусто)
       if (participantElements.length === 0) {
-        const allElements = participantsContainer.querySelectorAll('div, li, span, article, section');
-        participantElements = Array.from(allElements).filter(el => {
-          const hasAvatar = el.querySelector('[class*="avatar"], img') !== null;
-          const hasName = el.querySelector('[class*="name"], [class*="title"]') !== null;
-          const text = el.textContent.trim();
-          const looksLikeParticipant = text.length > 0 && text.length < 200 && 
-                                      !text.match(/^\d+$/) && // Не просто число
-                                      !text.includes('участник') && // Не заголовок
-                                      !text.match(/^\d+\s*(?:из|\/)\s*\d+$/); // Не счетчик
-          return (hasAvatar || hasName) && looksLikeParticipant;
+        // Оптимизированный поиск по структуре - сначала ищем элементы с аватарами
+        const elementsWithAvatars = participantsContainer.querySelectorAll('[class*="avatar"]');
+        const candidateElements = new Set();
+        
+        elementsWithAvatars.forEach(avatar => {
+          const parent = avatar.closest('div, li, article, section');
+          if (parent && parent !== participantsContainer) {
+            candidateElements.add(parent);
+          }
         });
-        console.error(`[imct_counter] Найдено элементов по структуре: ${participantElements.length}`);
+        
+        // Фильтруем кандидатов
+        participantElements = Array.from(candidateElements).filter(el => {
+          const text = el.textContent.trim();
+          return text.length > 0 && text.length < 200 && 
+                 !text.match(/^\d+$/) &&
+                 !text.includes('участник') &&
+                 !text.match(/^\d+\s*(?:из|\/)\s*\d+$/);
+        });
       }
-      
-      console.error(`[imct_counter] Всего найдено элементов участников: ${participantElements.length}`);
       
       participantElements.forEach((element) => {
         // Получаем имя участника - ищем в разных местах
@@ -2191,15 +1947,21 @@ async function extractChatData() {
         }
       });
       
+      // Логируем количество найденных участников
+      console.log(`[imct_counter] В группе "${name}" найдено участников: ${participantsList.length} (из ${participants} по счетчику)`);
+      if (adminsCount > 0 || ownersCount > 0) {
+        console.log(`[imct_counter] Админов: ${adminsCount}, Владельцев: ${ownersCount}`);
+      }
+      
       // Закрываем список участников (сначала через ESC, чтобы не кликать по правой кнопке)
       for (let i = 0; i < 2; i++) {
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-        await wait(150);
+        await wait(100);
       }
       
       // Если контейнер все еще видим, используем кнопку закрытия
       const stillVisible = participantsContainer.isConnected && 
-        (participantsContainer.offsetWidth > 0 || participantsContainer.offsetHeight > 0);
+                          (participantsContainer.offsetWidth > 0 || participantsContainer.offsetHeight > 0);
       
       if (stillVisible) {
         let closeButton = document.querySelector('[aria-label*="закрыть" i], [aria-label*="close" i], button[class*="close"], [class*="close-button"]');
@@ -2218,12 +1980,24 @@ async function extractChatData() {
         
         if (closeButton) {
           closeButton.click();
-          await wait(400);
+          await wait(300);
         }
       }
     }
   } catch (error) {
     // Игнорируем ошибки при сборе участников
+    console.error('[imct_counter] Ошибка при сборе участников:', error);
+  }
+  
+  // Логирование для отладки
+  if (participants > 0 && (!participantsList || participantsList.length === 0)) {
+    console.warn(`[imct_counter] getChatData: Группа "${name}" имеет ${participants} участников, но participantsList пустой!`, {
+      url,
+      participants,
+      participantsListLength: participantsList ? participantsList.length : 0,
+      adminsCount,
+      ownersCount
+    });
   }
   
   return {
@@ -2257,18 +2031,18 @@ async function goBackToList() {
   
   if (backButton) {
     backButton.click();
-    await wait(500); // Уменьшено с 2000 до 500
+    await wait(300); // Оптимизировано
   } else {
     // Используем историю браузера
     window.history.back();
-    await wait(500); // Уменьшено с 2000 до 500
+    await wait(300); // Оптимизировано
   }
   
   // Ждем возврата в список чатов - оптимизированная проверка
   try {
     // Быстрая проверка - если уже на странице списка, не ждем
     if (document.querySelector('.svelte-1u8ha7t, [role="presentation"].wrapper.svelte-q2jdqb')) {
-      await wait(200); // Короткая задержка для стабилизации
+      await wait(150); // Оптимизировано
       return;
     }
     await waitForElement('.svelte-1u8ha7t, [role="presentation"].wrapper.svelte-q2jdqb', 5000);
@@ -2347,8 +2121,8 @@ async function collectAllChatUrls() {
       // Продолжаем с текущим списком чатов
     }
     
-    // Даем время для завершения загрузки
-    await wait(800);
+    // Даем время для завершения загрузки (оптимизировано)
+    await wait(500);
     
     // Скроллим и собираем чаты по мере прогрузки (виртуализированный список)
     let allChatsAfterScroll;
@@ -2411,7 +2185,7 @@ async function collectChatData(maxChats = null) {
   try {
     console.error('[imct_counter] collectChatData запущена, maxChats:', maxChats);
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
-      updateOverlayStatus('Расширение перезапущено. Обновите страницу.', 'error');
+      console.log('Расширение перезапущено. Обновите страницу.', 'error');
       return;
     }
     isRunning = true;
@@ -2424,7 +2198,7 @@ async function collectChatData(maxChats = null) {
       chrome.storage.local.set({ isRunning: true, collectedData: [], processedUrls: [] });
     } catch (e) {
       console.error('[imct_counter] Ошибка доступа к storage:', e);
-      updateOverlayStatus('Ошибка storage. Обновите страницу.', 'error');
+      console.log('Ошибка storage. Обновите страницу.', 'error');
       isRunning = false;
       return;
     }
@@ -2463,17 +2237,22 @@ async function collectChatData(maxChats = null) {
     console.error('[imct_counter] Начинаем обработку чатов, всего:', allChats.length);
     sendProgress(0, allChats.length);
     
-    // Получаем контейнер для скролла (нужен для прокрутки к чатам)
-    let scrollContainer = null;
-    try {
-      const containerResult = findAllChats();
-      scrollContainer = containerResult.container;
-      console.log('[imct_counter] Контейнер для скролла найден:', scrollContainer.className);
-    } catch (e) {
-      console.warn('[imct_counter] Не удалось найти контейнер для скролла:', e);
-      // Пробуем найти контейнер по классу
-      scrollContainer = document.querySelector('.scrollable.scrollListScrollable, .scrollListScrollable, [class*="scrollListScrollable"]') ||
-                       document.querySelector('.svelte-1u8ha7t');
+    // Используем контейнер из collectAllChatUrls (избегаем повторного поиска)
+    let scrollContainer = result.container || null;
+    if (!scrollContainer) {
+      // Fallback: если контейнер не был возвращен, ищем его
+      try {
+        const containerResult = findAllChats();
+        scrollContainer = containerResult.container;
+        console.log('[imct_counter] Контейнер для скролла найден через findAllChats:', scrollContainer.className);
+      } catch (e) {
+        console.warn('[imct_counter] Не удалось найти контейнер для скролла:', e);
+        // Пробуем найти контейнер по классу
+        scrollContainer = document.querySelector('.scrollable.scrollListScrollable, .scrollListScrollable, [class*="scrollListScrollable"]') ||
+                         document.querySelector('.svelte-1u8ha7t');
+      }
+    } else {
+      console.log('[imct_counter] Используем контейнер из collectAllChatUrls:', scrollContainer.className);
     }
     
     // Обрабатываем каждый чат
@@ -2792,7 +2571,7 @@ async function collectChatData(maxChats = null) {
           console.log(`[imct_counter] Обрабатываем чат: ${normalizedUrl} (${i + 1}/${allChats.length})`);
           
           // Сохраняем данные только для групповых чатов
-          collectedData.push({
+          const itemToSave = {
             name: data.name || chat.name,
             url: finalUrl,
             participants: data.participants,
@@ -2800,7 +2579,20 @@ async function collectChatData(maxChats = null) {
             adminsCount: data.adminsCount || 0,
             ownersCount: data.ownersCount || 0,
             hasDigitalVuzBot: data.hasDigitalVuzBot || false
-          });
+          };
+          
+          // Логирование для отладки
+          if (itemToSave.participants > 0 && (!itemToSave.participantsList || itemToSave.participantsList.length === 0)) {
+            console.warn(`[imct_counter] Группа "${itemToSave.name}" имеет ${itemToSave.participants} участников, но participantsList пустой!`, {
+              url: finalUrl,
+              participants: itemToSave.participants,
+              participantsListLength: itemToSave.participantsList ? itemToSave.participantsList.length : 0,
+              dataParticipants: data.participants,
+              dataParticipantsListLength: data.participantsList ? data.participantsList.length : 0
+            });
+          }
+          
+          collectedData.push(itemToSave);
           
           // Сохраняем промежуточные данные каждые 5 чатов (оптимизация)
           if (collectedData.length % 5 === 0) {
@@ -2889,7 +2681,7 @@ function sendProgress(current, total) {
       current: current,
       total: total
     });
-    updateOverlayProgress(current, total);
+    console.log(current, total);
   } catch (error) {
     console.error('[imct_counter] Ошибка при отправке прогресса:', error);
   }
@@ -2921,7 +2713,7 @@ function sendCompleted() {
   } catch (e) {
     console.error('[imct_counter] Ошибка при завершении:', e);
   }
-  updateOverlayStatus('Готово', 'completed');
+  console.log('Готово', 'completed');
   updateOverlayResults();
 }
 
@@ -2937,7 +2729,7 @@ function sendError(errorMessage) {
   } catch (e) {
     console.error('[imct_counter] Ошибка при отправке ошибки:', e);
   }
-  updateOverlayStatus('Ошибка: ' + errorMessage, 'error');
+  console.log('Ошибка: ' + errorMessage, 'error');
 }
 
 // Обработка сообщений от popup

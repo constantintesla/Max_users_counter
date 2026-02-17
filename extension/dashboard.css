@@ -273,3 +273,12 @@ h1 {
 .btn-info:hover {
   background: #546e7a;
 }
+
+.btn-warning {
+  background: #ff9800;
+  color: #fff;
+}
+
+.btn-warning:hover {
+  background: #f57c00;
+}
