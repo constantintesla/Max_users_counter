@@ -27,7 +27,7 @@ let chartChangesEl;
 let chartTopChangesEl;
 let recalcBtn;
 
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxOcS9WzssHktnL3RRMsEHimTt14V7qlDDAP9S64dCJ_grRrg8pc4WX1nd1F9gt9VJ-6w/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUL2lwOOcJCzjPKnMniEl1nihZ20bdzXNLVLac5YTNXUa7s8ATo1byI_fWAvCOdfWxEQ/exec';
 
 function getUIElements() {
   collectBtn = document.getElementById('collectBtn');

@@ -49,12 +49,17 @@ function doGet(e) {
   const sheetName = 'max_imct';
   const ss = SpreadsheetApp.openById('1sXRB-UkFrCl4Qd2ROz36jPqqGY1-a8X9gURztZPYQpA');
   const sheet = ss.getSheetByName(sheetName);
+  const callback = (e && e.parameter && e.parameter.callback) || '';
   const userId = (e && e.parameter && e.parameter.userId) || '';
   const limit = Math.min(parseInt((e && e.parameter && e.parameter.limit) || '2000', 10), 5000);
 
   if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, rows: [] }))
-      .setMimeType(ContentService.MimeType.JSON);
+    const result = { ok: true, rows: [] };
+    const output = callback
+      ? `${callback}(${JSON.stringify(result)})`
+      : JSON.stringify(result);
+    return ContentService.createTextOutput(output)
+      .setMimeType(callback ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
   }
 
   const data = sheet.getDataRange().getValues();
@@ -69,15 +74,33 @@ function doGet(e) {
     rows.push(obj);
   }
 
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, rows: rows.reverse() }))
-    .setMimeType(ContentService.MimeType.JSON);
+  const result = { ok: true, rows: rows.reverse() };
+  const output = callback
+    ? `${callback}(${JSON.stringify(result)})`
+    : JSON.stringify(result);
+
+  return ContentService.createTextOutput(output)
+    .setMimeType(callback ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
+  // Проверка на существование параметра e и e.postData
+  if (!e || !e.postData || !e.postData.contents) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'No data received' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
   const sheetName = 'max_imct';
   const ss = SpreadsheetApp.openById('1sXRB-UkFrCl4Qd2ROz36jPqqGY1-a8X9gURztZPYQpA');
   const sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
-  const body = JSON.parse(e.postData.contents || '{}');
+  
+  let body;
+  try {
+    body = JSON.parse(e.postData.contents);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Invalid JSON: ' + error.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 
   const headers = [
     'ts',
