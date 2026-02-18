@@ -369,60 +369,138 @@ function buildSnapshotsFromRows(rows) {
 
 async function loadSnapshotsFromSheets() {
   console.log('[imct_counter dashboard] ========== ЗАГРУЗКА ИЗ GOOGLE SHEETS ==========');
-  const userId = await getOrCreateUserId();
-  console.log('[imct_counter dashboard] UserId:', userId);
-  const url = `${APPS_SCRIPT_URL}?action=get&userId=${encodeURIComponent(userId)}&limit=2000`;
-  console.log('[imct_counter dashboard] URL запроса:', url);
+  
+  // Пробуем несколько вариантов запроса
+  let rows = [];
+  let lastError = null;
+  
+  // Вариант 1: Без параметров (просто URL)
+  let url = APPS_SCRIPT_URL;
+  console.log('[imct_counter dashboard] Попытка 1: Без параметров, URL:', url);
   
   try {
-    const response = await fetch(url, { method: 'GET' });
+    const response = await fetch(url, { 
+      method: 'GET',
+      cache: 'no-cache'
+    });
+    
     console.log('[imct_counter dashboard] Ответ получен, статус:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ошибка: ${response.status} ${response.statusText}`);
+    }
+    
     const data = await response.json();
     console.log('[imct_counter dashboard] Данные получены:', {
       ok: data?.ok,
-      rowsCount: Array.isArray(data?.rows) ? data.rows.length : 0
+      rowsCount: Array.isArray(data?.rows) ? data.rows.length : 0,
+      dataKeys: data ? Object.keys(data) : []
     });
     
-    if (!data || !data.ok) {
-      throw new Error('Не удалось получить данные из Google Sheets');
-    }
-    const rows = Array.isArray(data.rows) ? data.rows : [];
-    
-    // Проверяем первые несколько строк
-    if (rows.length > 0) {
-      const sampleRows = rows.slice(0, 3);
-      sampleRows.forEach((row, idx) => {
-        console.log(`[imct_counter dashboard] Загруженная строка ${idx + 1}:`, {
-          ts: row.ts,
-          groupName: row.groupName,
-          participants: row.participants,
-          participants_list: row.participants_list ? `[${row.participants_list.length} символов] ${row.participants_list.substring(0, 100)}...` : 'ПУСТО!',
-          delta: row.delta
-        });
-      });
+    if (!data) {
+      throw new Error('Пустой ответ от сервера');
     }
     
-    const loaded = buildSnapshotsFromRows(rows);
-    console.log('[imct_counter dashboard] Построено снимков:', loaded.length);
-    if (loaded.length > 0) {
-      const lastSnapshot = loaded[loaded.length - 1];
-      console.log('[imct_counter dashboard] Последний снимок:', {
-        timestamp: lastSnapshot.timestamp,
-        iso: new Date(lastSnapshot.timestamp).toISOString(),
-        groupsCount: Object.keys(lastSnapshot.groups || {}).length
-      });
+    // Если ответ содержит rows, используем их
+    if (Array.isArray(data.rows)) {
+      if (data.rows.length > 0) {
+        rows = data.rows;
+        console.log('[imct_counter dashboard] Успешно загружено строк:', rows.length);
+      } else if (data.ok === true) {
+        // Если ok: true, но rows пустой - это нормально, просто нет данных
+        console.log('[imct_counter dashboard] API вернул ok: true, но rows пустой - данных нет');
+        // Не пробуем другие варианты, если API вернул успешный ответ
+        return 0;
+      }
     }
-    
-    snapshots = loaded;
-    chrome.storage.local.set({ snapshots: snapshots }, () => {
-      renderSnapshots();
-    });
-    console.log('[imct_counter dashboard] ========== ЗАГРУЗКА ЗАВЕРШЕНА ==========');
-    return loaded.length;
   } catch (error) {
-    console.error('[imct_counter dashboard] Ошибка загрузки из Google Sheets:', error);
-    throw error;
+    console.warn('[imct_counter dashboard] Ошибка при попытке 1:', error.message);
+    lastError = error;
+    
+    // Вариант 2: С action=get, но без userId
+    url = `${APPS_SCRIPT_URL}?action=get&limit=2000`;
+    console.log('[imct_counter dashboard] Попытка 2: С action=get, URL:', url);
+    
+    try {
+      const response2 = await fetch(url, { 
+        method: 'GET',
+        cache: 'no-cache'
+      });
+      
+      if (response2.ok) {
+        const data2 = await response2.json();
+        if (Array.isArray(data2.rows) && data2.rows.length > 0) {
+          rows = data2.rows;
+          console.log('[imct_counter dashboard] Успешно загружено строк (попытка 2):', rows.length);
+        }
+      }
+    } catch (error2) {
+      console.warn('[imct_counter dashboard] Ошибка при попытке 2:', error2.message);
+      lastError = error2;
+      
+      // Вариант 3: С userId
+      const userId = await getOrCreateUserId();
+      url = `${APPS_SCRIPT_URL}?action=get&userId=${encodeURIComponent(userId)}&limit=2000`;
+      console.log('[imct_counter dashboard] Попытка 3: С userId, URL:', url);
+      
+      try {
+        const response3 = await fetch(url, { 
+          method: 'GET',
+          cache: 'no-cache'
+        });
+        
+        if (response3.ok) {
+          const data3 = await response3.json();
+          if (Array.isArray(data3.rows) && data3.rows.length > 0) {
+            rows = data3.rows;
+            console.log('[imct_counter dashboard] Успешно загружено строк (попытка 3):', rows.length);
+          }
+        }
+      } catch (error3) {
+        console.warn('[imct_counter dashboard] Ошибка при попытке 3:', error3.message);
+        lastError = error3;
+      }
+    }
   }
+  
+  if (rows.length === 0) {
+    const errorMsg = lastError 
+      ? `Не удалось загрузить данные: ${lastError.message}` 
+      : 'Нет данных для загрузки. Таблица пуста или запрос неверен.';
+    throw new Error(errorMsg);
+  }
+  
+  // Проверяем первые несколько строк
+  if (rows.length > 0) {
+    const sampleRows = rows.slice(0, 3);
+    sampleRows.forEach((row, idx) => {
+      console.log(`[imct_counter dashboard] Загруженная строка ${idx + 1}:`, {
+        ts: row.ts,
+        groupName: row.groupName,
+        participants: row.participants,
+        participants_list: row.participants_list ? `[${row.participants_list.length} символов] ${row.participants_list.substring(0, 100)}...` : 'ПУСТО!',
+        delta: row.delta
+      });
+    });
+  }
+  
+  const loaded = buildSnapshotsFromRows(rows);
+  console.log('[imct_counter dashboard] Построено снимков:', loaded.length);
+  if (loaded.length > 0) {
+    const lastSnapshot = loaded[loaded.length - 1];
+    console.log('[imct_counter dashboard] Последний снимок:', {
+      timestamp: lastSnapshot.timestamp,
+      iso: new Date(lastSnapshot.timestamp).toISOString(),
+      groupsCount: Object.keys(lastSnapshot.groups || {}).length
+    });
+  }
+  
+  snapshots = loaded;
+  chrome.storage.local.set({ snapshots: snapshots }, () => {
+    renderSnapshots();
+  });
+  console.log('[imct_counter dashboard] ========== ЗАГРУЗКА ЗАВЕРШЕНА ==========');
+  return loaded.length;
 }
 
 function formatDate(ts) {
