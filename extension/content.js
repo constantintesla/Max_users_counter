@@ -734,7 +734,8 @@ function normalizeChatName(name) {
 }
 
 const SKIP_CHAT_NAMES = new Set([
-  normalizeChatName('Сборище ебать какие тупых обезьян сука в Максе')
+  normalizeChatName('Сборище ебать какие тупых обезьян сука в Максе'),
+  normalizeChatName('Дшрг восторг')
 ]);
 
 function shouldSkipChatName(name) {
