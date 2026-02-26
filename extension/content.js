@@ -1189,6 +1189,96 @@ function findAllChats() {
   return { container, chats };
 }
 
+async function extractInviteLinkFromGroupPage() {
+  const startUrl = window.location.href;
+  let inviteLink = '';
+
+  const inviteButtonSelectors = [
+    'button.cell.cell--themed.cell--primary.cell--compact.cell--clickable.svelte-1ea3xf6',
+    'button.cell.cell--themed.cell--primary.cell--compact.cell--clickable',
+    'button.cell.cell--themed.cell--primary.cell--compact',
+    '[class*="cell"][class*="cell--themed"][class*="cell--primary"][class*="cell--compact"][class*="cell--clickable"]'
+  ];
+  const inviteValueSelectors = [
+    '.title-large.weight-600.text-align-left.ellipsis.text-current.svelte-xpydf0',
+    '.title-large.weight-600.text-align-left.ellipsis.text-current',
+    '[class*="title-large"][class*="weight-600"][class*="text-align-left"][class*="ellipsis"][class*="text-current"]'
+  ];
+
+  const findVisibleElement = (selectors) => {
+    for (const selector of selectors) {
+      const candidates = document.querySelectorAll(selector);
+      for (const candidate of candidates) {
+        if (candidate && candidate.isConnected && (candidate.offsetWidth > 0 || candidate.offsetHeight > 0)) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  };
+
+  try {
+    let inviteButton = null;
+    for (let i = 0; i < 6 && !inviteButton; i++) {
+      inviteButton = findVisibleElement(inviteButtonSelectors);
+      if (!inviteButton) {
+        await wait(200);
+      }
+    }
+
+    if (!inviteButton) {
+      return '';
+    }
+
+    inviteButton.scrollIntoView({ behavior: 'auto', block: 'center' });
+    await wait(120);
+
+    let clicked = false;
+    try {
+      inviteButton.click();
+      clicked = true;
+    } catch (error) {
+      // Игнорируем и пробуем через событие.
+    }
+    if (!clicked) {
+      try {
+        inviteButton.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          buttons: 1
+        }));
+      } catch (error) {
+        return '';
+      }
+    }
+
+    for (let i = 0; i < 20; i++) {
+      await wait(200);
+      const inviteValueEl = findVisibleElement(inviteValueSelectors);
+      const text = inviteValueEl ? inviteValueEl.textContent.trim() : '';
+      if (text) {
+        inviteLink = text;
+        break;
+      }
+    }
+  } catch (error) {
+    console.warn('[imct_counter] Не удалось извлечь пригласительную ссылку:', error);
+  } finally {
+    if (window.location.href !== startUrl) {
+      window.history.back();
+      for (let i = 0; i < 20; i++) {
+        await wait(200);
+        if (window.location.href === startUrl) {
+          break;
+        }
+      }
+    }
+  }
+
+  return inviteLink;
+}
+
 // Функция извлечения данных из чата
 async function extractChatData() {
   // Ждем загрузки информации о чате (оптимизировано)
@@ -1202,7 +1292,8 @@ async function extractChatData() {
     return {
       name: '',
       url: window.location.href,
-      participants: 0
+      participants: 0,
+      inviteLink: ''
     };
   }
   
@@ -1330,6 +1421,7 @@ async function extractChatData() {
   
   // Получаем URL текущей страницы (должен быть в формате /-число)
   const url = window.location.href;
+  const inviteLink = await extractInviteLinkFromGroupPage();
   
   // Собираем информацию об участниках
   let participantsList = [];
@@ -2008,7 +2100,8 @@ async function extractChatData() {
     participantsList: participantsList,
     adminsCount: adminsCount,
     ownersCount: ownersCount,
-    hasDigitalVuzBot: hasDigitalVuzBot
+    hasDigitalVuzBot: hasDigitalVuzBot,
+    inviteLink: inviteLink
   };
 }
 
@@ -2579,7 +2672,8 @@ async function collectChatData(maxChats = null) {
             participantsList: data.participantsList || [],
             adminsCount: data.adminsCount || 0,
             ownersCount: data.ownersCount || 0,
-            hasDigitalVuzBot: data.hasDigitalVuzBot || false
+            hasDigitalVuzBot: data.hasDigitalVuzBot || false,
+            inviteLink: data.inviteLink || ''
           };
           
           // Логирование для отладки

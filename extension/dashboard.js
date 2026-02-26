@@ -171,7 +171,8 @@ function buildSnapshot(data, timestamp) {
       hasDigitalVuzAdmin: hasDigitalVuzAdmin,
       hasKhlstovAdmin: hasKhlstovAdmin,
       hasDvfuStatsUser: hasDvfuStatsUser,
-      participantsListStr: participantsListStr
+      participantsListStr: participantsListStr,
+      inviteLink: item.inviteLink || ''
     };
   });
   return {
@@ -251,6 +252,7 @@ function buildRowsForSnapshot(snapshot, prevSnapshot) {
       hasKhlstovAdmin: curr ? curr.hasKhlstovAdmin : false,
       hasDvfuStatsUser: curr ? curr.hasDvfuStatsUser : false,
       participantsListStr: participantsListStr,
+      inviteLink: (curr && curr.inviteLink) || (prevItem && prevItem.inviteLink) || '',
       // Также отправляем как participants_list для совместимости с Google Apps Script
       participants_list: participantsListStr
     });
@@ -361,7 +363,8 @@ function buildSnapshotsFromRows(rows) {
       hasDigitalVuzAdmin: parseBool(row.hasDigitalVuzAdmin),
       hasKhlstovAdmin: parseBool(row.hasKhlstovAdmin),
       hasDvfuStatsUser: parseBool(row.hasDvfuStatsUser),
-      participantsListStr: row.participants_list || ''
+      participantsListStr: row.participants_list || '',
+      inviteLink: row.invite_link || row.inviteLink || ''
     };
   });
   return Array.from(byTimestamp.values()).sort((a, b) => a.timestamp - b.timestamp);
@@ -568,13 +571,16 @@ function renderSnapshots() {
     rows.push({
       key: key,
       name: (current && current.name) || (previous && previous.name) || key,
+      url: (current && current.url) || (previous && previous.url) || '',
+      participantsListStr: (current && current.participantsListStr) || (previous && previous.participantsListStr) || '',
       participants: currentParticipants,
       adminsCount: current ? current.adminsCount : 0,
       ownersCount: current ? current.ownersCount : 0,
       delta: delta,
       hasDigitalVuzAdmin: current ? current.hasDigitalVuzAdmin : false,
       hasKhlstovAdmin: current ? current.hasKhlstovAdmin : false,
-      hasDvfuStatsUser: current ? current.hasDvfuStatsUser : false
+      hasDvfuStatsUser: current ? current.hasDvfuStatsUser : false,
+      inviteLink: (current && current.inviteLink) || (previous && previous.inviteLink) || ''
     });
   });
 
@@ -609,48 +615,35 @@ function renderSnapshots() {
       nameTd.textContent = row.name;
       tr.appendChild(nameTd);
 
-      const participantsTd = document.createElement('td');
-      participantsTd.textContent = String(row.participants);
-      if (row.delta > 0) {
-        participantsTd.className = 'participants-up';
-      } else if (row.delta < 0) {
-        participantsTd.className = 'participants-down';
+      const urlTd = document.createElement('td');
+      if (row.url) {
+        const link = document.createElement('a');
+        link.href = row.url;
+        link.textContent = row.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        urlTd.appendChild(link);
       } else {
-        participantsTd.className = 'participants-same';
+        urlTd.textContent = '—';
       }
-      tr.appendChild(participantsTd);
+      tr.appendChild(urlTd);
 
-      const deltaTd = document.createElement('td');
-      const deltaText = row.delta > 0 ? `+${row.delta}` : String(row.delta);
-      deltaTd.textContent = deltaText;
-      if (row.delta > 0) {
-        deltaTd.className = 'delta-up';
-      } else if (row.delta < 0) {
-        deltaTd.className = 'delta-down';
+      const inviteTd = document.createElement('td');
+      if (row.inviteLink) {
+        const inviteLinkEl = document.createElement('a');
+        inviteLinkEl.href = row.inviteLink;
+        inviteLinkEl.textContent = row.inviteLink;
+        inviteLinkEl.target = '_blank';
+        inviteLinkEl.rel = 'noopener noreferrer';
+        inviteTd.appendChild(inviteLinkEl);
       } else {
-        deltaTd.className = 'delta-same';
+        inviteTd.textContent = '—';
       }
-      tr.appendChild(deltaTd);
+      tr.appendChild(inviteTd);
 
-      const adminsTd = document.createElement('td');
-      adminsTd.textContent = String(row.adminsCount);
-      tr.appendChild(adminsTd);
-
-      const ownersTd = document.createElement('td');
-      ownersTd.textContent = String(row.ownersCount);
-      tr.appendChild(ownersTd);
-
-      const digitalVuzTd = document.createElement('td');
-      digitalVuzTd.textContent = row.hasDigitalVuzAdmin ? 'Да' : 'Нет';
-      tr.appendChild(digitalVuzTd);
-
-      const khlstovTd = document.createElement('td');
-      khlstovTd.textContent = row.hasKhlstovAdmin ? 'Да' : 'Нет';
-      tr.appendChild(khlstovTd);
-
-      const dvfuTd = document.createElement('td');
-      dvfuTd.textContent = row.hasDvfuStatsUser ? 'Да' : 'Нет';
-      tr.appendChild(dvfuTd);
+      const usersTd = document.createElement('td');
+      usersTd.textContent = row.participantsListStr || '—';
+      tr.appendChild(usersTd);
 
       tableBodyEl.appendChild(tr);
     });
