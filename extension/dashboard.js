@@ -12,6 +12,8 @@ let lastUpdatedEl;
 let emptyStateEl;
 let tableEl;
 let tableBodyEl;
+let inviteTableEl;
+let inviteTableBodyEl;
 let summaryTotalEl;
 let summaryUpEl;
 let summaryDownEl;
@@ -42,6 +44,8 @@ function getUIElements() {
   emptyStateEl = document.getElementById('emptyState');
   tableEl = document.getElementById('resultsTable');
   tableBodyEl = document.getElementById('tableBody');
+  inviteTableEl = document.getElementById('inviteTable');
+  inviteTableBodyEl = document.getElementById('inviteTableBody');
   summaryTotalEl = document.getElementById('summary-total');
   summaryUpEl = document.getElementById('summary-up');
   summaryDownEl = document.getElementById('summary-down');
@@ -515,6 +519,14 @@ function formatDate(ts) {
   }
 }
 
+function extractOwnerName(participantsListStr) {
+  if (!participantsListStr) return '';
+  const entries = participantsListStr.split(';').map(x => x.trim()).filter(Boolean);
+  const ownerEntry = entries.find(entry => entry.includes('(Владелец)'));
+  if (!ownerEntry) return '';
+  return ownerEntry.replace(/\s*\(Владелец\)\s*/g, '').trim();
+}
+
 function renderSnapshots() {
   const lastSnapshot = snapshots[snapshots.length - 1];
   const prevSnapshot = snapshots[snapshots.length - 2];
@@ -522,6 +534,7 @@ function renderSnapshots() {
   if (!lastSnapshot) {
     if (emptyStateEl) emptyStateEl.style.display = 'block';
     if (tableEl) tableEl.style.display = 'none';
+    if (inviteTableEl) inviteTableEl.style.display = 'none';
     if (chartsEl) chartsEl.style.display = 'none';
     if (lastUpdatedEl) lastUpdatedEl.textContent = 'Последний снимок: —';
     if (summaryTotalEl) summaryTotalEl.textContent = '0';
@@ -615,6 +628,62 @@ function renderSnapshots() {
       nameTd.textContent = row.name;
       tr.appendChild(nameTd);
 
+      const participantsTd = document.createElement('td');
+      participantsTd.textContent = String(row.participants);
+      if (row.delta > 0) {
+        participantsTd.className = 'participants-up';
+      } else if (row.delta < 0) {
+        participantsTd.className = 'participants-down';
+      } else {
+        participantsTd.className = 'participants-same';
+      }
+      tr.appendChild(participantsTd);
+
+      const deltaTd = document.createElement('td');
+      const deltaText = row.delta > 0 ? `+${row.delta}` : String(row.delta);
+      deltaTd.textContent = deltaText;
+      if (row.delta > 0) {
+        deltaTd.className = 'delta-up';
+      } else if (row.delta < 0) {
+        deltaTd.className = 'delta-down';
+      } else {
+        deltaTd.className = 'delta-same';
+      }
+      tr.appendChild(deltaTd);
+
+      const adminsTd = document.createElement('td');
+      adminsTd.textContent = String(row.adminsCount);
+      tr.appendChild(adminsTd);
+
+      const ownersTd = document.createElement('td');
+      ownersTd.textContent = String(row.ownersCount);
+      tr.appendChild(ownersTd);
+
+      const digitalVuzTd = document.createElement('td');
+      digitalVuzTd.textContent = row.hasDigitalVuzAdmin ? 'Да' : 'Нет';
+      tr.appendChild(digitalVuzTd);
+
+      const khlstovTd = document.createElement('td');
+      khlstovTd.textContent = row.hasKhlstovAdmin ? 'Да' : 'Нет';
+      tr.appendChild(khlstovTd);
+
+      const dvfuTd = document.createElement('td');
+      dvfuTd.textContent = row.hasDvfuStatsUser ? 'Да' : 'Нет';
+      tr.appendChild(dvfuTd);
+
+      tableBodyEl.appendChild(tr);
+    });
+  }
+
+  if (inviteTableBodyEl) {
+    inviteTableBodyEl.innerHTML = '';
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+
+      const nameTd = document.createElement('td');
+      nameTd.textContent = row.name;
+      tr.appendChild(nameTd);
+
       const urlTd = document.createElement('td');
       if (row.url) {
         const link = document.createElement('a');
@@ -641,16 +710,17 @@ function renderSnapshots() {
       }
       tr.appendChild(inviteTd);
 
-      const usersTd = document.createElement('td');
-      usersTd.textContent = row.participantsListStr || '—';
-      tr.appendChild(usersTd);
+      const ownerTd = document.createElement('td');
+      ownerTd.textContent = extractOwnerName(row.participantsListStr) || '—';
+      tr.appendChild(ownerTd);
 
-      tableBodyEl.appendChild(tr);
+      inviteTableBodyEl.appendChild(tr);
     });
   }
 
   if (emptyStateEl) emptyStateEl.style.display = 'none';
   if (tableEl) tableEl.style.display = 'table';
+  if (inviteTableEl) inviteTableEl.style.display = 'table';
   if (chartsEl) chartsEl.style.display = 'grid';
   renderCharts();
 }

@@ -1193,10 +1193,25 @@ async function extractInviteLinkFromGroupPage() {
   const startUrl = window.location.href;
   let inviteLink = '';
 
+  const openProfileSelectors = [
+    'header button[aria-label*="Открыть профиль"]',
+    'header button[aria-label*="открыть профиль"]',
+    'header button[aria-label*="Open profile"]',
+    'button[aria-label*="Открыть профиль"]',
+    'button[aria-label*="открыть профиль"]',
+    'button[aria-label*="Open profile"]',
+    'header button.main.content--clickable',
+    'header button[class*="main"][class*="content--clickable"]',
+    'button.main.content--clickable',
+    'button[class*="main"][class*="content--clickable"]',
+    'header [class*="content--clickable"]'
+  ];
   const inviteButtonSelectors = [
     'button.cell.cell--themed.cell--primary.cell--compact.cell--clickable.svelte-1ea3xf6',
+    '.cell.cell--themed.cell--primary.cell--compact.cell--clickable.svelte-1ea3xf6',
     'button.cell.cell--themed.cell--primary.cell--compact.cell--clickable',
-    'button.cell.cell--themed.cell--primary.cell--compact',
+    '.cell.cell--themed.cell--primary.cell--compact.cell--clickable',
+    '[role="button"].cell.cell--themed.cell--primary.cell--compact.cell--clickable',
     '[class*="cell"][class*="cell--themed"][class*="cell--primary"][class*="cell--compact"][class*="cell--clickable"]'
   ];
   const inviteValueSelectors = [
@@ -1205,71 +1220,178 @@ async function extractInviteLinkFromGroupPage() {
     '[class*="title-large"][class*="weight-600"][class*="text-align-left"][class*="ellipsis"][class*="text-current"]'
   ];
 
+  const isVisible = (el) => el && el.isConnected && (el.offsetWidth > 0 || el.offsetHeight > 0);
+  const normalizeText = (value) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const findVisibleElement = (selectors) => {
     for (const selector of selectors) {
       const candidates = document.querySelectorAll(selector);
       for (const candidate of candidates) {
-        if (candidate && candidate.isConnected && (candidate.offsetWidth > 0 || candidate.offsetHeight > 0)) {
+        if (isVisible(candidate)) {
           return candidate;
         }
       }
     }
     return null;
   };
+  const isInviteByLinkButton = (element) => {
+    if (!isVisible(element)) return false;
+    const text = normalizeText(element.textContent);
+    const ariaLabel = normalizeText(element.getAttribute('aria-label'));
+    const title = normalizeText(element.getAttribute('title'));
+    const allText = `${text} ${ariaLabel} ${title}`.trim();
+    const hasInviteByLinkText = allText.includes('пригласить по ссылке') || allText.includes('invite by link');
+    const isAddMembers = allText.includes('добавить участников') || allText.includes('add members');
+    if (isAddMembers) return false;
+    if (!hasInviteByLinkText) return false;
+    return true;
+  };
+  const findInviteActionButton = () => {
+    const matched = [];
+    for (const selector of inviteButtonSelectors) {
+      const candidates = document.querySelectorAll(selector);
+      for (const candidate of candidates) {
+        if (isInviteByLinkButton(candidate)) {
+          matched.push(candidate);
+        }
+      }
+    }
+    if (matched.length === 0) {
+      return null;
+    }
+    // Предпочитаем кнопку со знаком "ссылка", если иконка присутствует.
+    const withLinkIcon = matched.find(el => {
+      const use = el.querySelector('use[href*="icon_link"], use[href*="link_20"]');
+      return !!use;
+    });
+    return withLinkIcon || matched[0];
+  };
+  const safeClick = async (element, label) => {
+    if (!element) return false;
+    try {
+      element.scrollIntoView({ behavior: 'auto', block: 'center' });
+      await wait(120);
+    } catch (error) {
+      // Игнорируем ошибки прокрутки.
+    }
+    try {
+      element.click();
+      console.log(`[imct_counter invite] ${label}: click() выполнен`);
+      return true;
+    } catch (error) {
+      // Пробуем fallback через MouseEvent.
+    }
+    try {
+      element.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        buttons: 1
+      }));
+      console.log(`[imct_counter invite] ${label}: dispatchEvent(click) выполнен`);
+      return true;
+    } catch (error) {
+      console.warn(`[imct_counter invite] ${label}: не удалось кликнуть`, error);
+      return false;
+    }
+  };
 
   try {
-    let inviteButton = null;
-    for (let i = 0; i < 6 && !inviteButton; i++) {
-      inviteButton = findVisibleElement(inviteButtonSelectors);
-      if (!inviteButton) {
+    console.log('[imct_counter invite] Шаг 1/4: открываем страницу группы');
+    const initialInviteButton = findInviteActionButton();
+    let onGroupProfilePage = !!initialInviteButton;
+    let profileOpened = false;
+
+    if (onGroupProfilePage) {
+      console.log('[imct_counter invite] Уже на странице группы: кнопка приглашения видна');
+    } else {
+      let profileOpenButton = null;
+      for (let i = 0; i < 6 && !profileOpenButton; i++) {
+        profileOpenButton = findVisibleElement(openProfileSelectors);
+        if (!profileOpenButton) await wait(200);
+      }
+
+      if (!profileOpenButton) {
+        console.warn('[imct_counter invite] Кнопка открытия профиля группы не найдена');
+        return '';
+      }
+
+      const clicked = await safeClick(profileOpenButton, 'Открытие профиля группы');
+      if (!clicked) {
+        console.warn('[imct_counter invite] Не удалось кликнуть кнопку открытия профиля');
+        return '';
+      }
+
+      for (let i = 0; i < 20; i++) {
         await wait(200);
+        const inviteButtonAfterOpen = findInviteActionButton();
+        if (inviteButtonAfterOpen) {
+          onGroupProfilePage = true;
+          profileOpened = true;
+          console.log('[imct_counter invite] Страница группы открыта успешно');
+          break;
+        }
       }
     }
 
-    if (!inviteButton) {
+    if (!onGroupProfilePage) {
+      console.warn('[imct_counter invite] Страница группы не открылась: кнопка приглашения не обнаружена');
       return '';
     }
 
-    inviteButton.scrollIntoView({ behavior: 'auto', block: 'center' });
-    await wait(120);
-
-    let clicked = false;
-    try {
-      inviteButton.click();
-      clicked = true;
-    } catch (error) {
-      // Игнорируем и пробуем через событие.
+    console.log('[imct_counter invite] Шаг 2/4: ищем кнопку приглашения');
+    let inviteButton = null;
+    for (let i = 0; i < 10 && !inviteButton; i++) {
+      inviteButton = findInviteActionButton();
+      if (!inviteButton) await wait(200);
     }
-    if (!clicked) {
-      try {
-        inviteButton.dispatchEvent(new MouseEvent('click', {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          buttons: 1
-        }));
-      } catch (error) {
-        return '';
-      }
+    if (!inviteButton) {
+      console.warn('[imct_counter invite] Кнопка приглашения не найдена');
+      return '';
+    }
+    console.log('[imct_counter invite] Кнопка приглашения найдена');
+
+    console.log('[imct_counter invite] Шаг 3/4: кликаем кнопку приглашения');
+    const inviteButtonClicked = await safeClick(inviteButton, 'Кнопка приглашения');
+    if (!inviteButtonClicked) {
+      console.warn('[imct_counter invite] Не удалось кликнуть кнопку приглашения');
+      return '';
     }
 
-    for (let i = 0; i < 20; i++) {
+    console.log('[imct_counter invite] Шаг 4/4: ждём и читаем пригласительную ссылку');
+    for (let i = 0; i < 30; i++) {
       await wait(200);
       const inviteValueEl = findVisibleElement(inviteValueSelectors);
       const text = inviteValueEl ? inviteValueEl.textContent.trim() : '';
       if (text) {
         inviteLink = text;
+        console.log('[imct_counter invite] Пригласительная ссылка получена');
         break;
       }
     }
+
+    if (!inviteLink) {
+      console.warn('[imct_counter invite] Не удалось прочитать текст пригласительной ссылки');
+    }
+
+    if (profileOpened && window.location.href === startUrl) {
+      // Если URL не менялся, вероятнее всего открывался слой/панель.
+      // Закрываем его через Escape, чтобы не мешать последующим шагам.
+      for (let i = 0; i < 2; i++) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        await wait(120);
+      }
+    }
   } catch (error) {
-    console.warn('[imct_counter] Не удалось извлечь пригласительную ссылку:', error);
+    console.warn('[imct_counter invite] Ошибка при извлечении пригласительной ссылки:', error);
   } finally {
+    // Возвращаемся на исходную страницу чата, если ушли в отдельный роут.
     if (window.location.href !== startUrl) {
+      console.log('[imct_counter invite] Возвращаемся на исходную страницу чата');
       window.history.back();
       for (let i = 0; i < 20; i++) {
         await wait(200);
         if (window.location.href === startUrl) {
+          console.log('[imct_counter invite] Возврат завершен');
           break;
         }
       }

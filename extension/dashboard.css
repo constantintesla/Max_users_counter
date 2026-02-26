@@ -191,6 +191,10 @@ h1 {
   overflow: hidden;
 }
 
+#inviteTable {
+  margin-top: 12px;
+}
+
 .table th,
 .table td {
   padding: 10px 12px;
@@ -222,10 +226,10 @@ h1 {
   font-weight: 600;
 }
 
-.table td:nth-child(3),
-.table th:nth-child(3),
-.table td:nth-child(4),
-.table th:nth-child(4) {
+#inviteTable td:nth-child(3),
+#inviteTable th:nth-child(3),
+#inviteTable td:nth-child(4),
+#inviteTable th:nth-child(4) {
   max-width: 360px;
   word-break: break-all;
 }
